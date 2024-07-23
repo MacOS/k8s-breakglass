@@ -64,11 +64,19 @@ func main() {
 	}
 	clientSet = cs
 
-	http.HandleFunc("/mutate", HandleMutate)
+	http.HandleFunc("/authorize", HandleAuthorize)
 	log.Fatal(http.ListenAndServeTLS(":"+strconv.Itoa(parameters.port), parameters.certFile, parameters.keyFile, nil))
 
 }
 
-func HandleMutate(w http.ResponseWriter, r *http.Request) {
-	w.Write([]byte("test"))
+func HandleAuthorize(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	response := `{
+		"apiVersion": "authorization.k8s.io/v1beta1",
+		"kind": "SubjectAccessReview",
+		"status": {
+		  "allowed": true
+		}
+	}`
+	w.Write([]byte(response))
 }
