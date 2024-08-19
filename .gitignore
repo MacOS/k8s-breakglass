@@ -1,0 +1,5 @@
+# ignore vite local env files
+frontend/*.local
+
+breakglass.yaml
+config.yaml

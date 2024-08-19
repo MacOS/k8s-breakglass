@@ -1,0 +1,6 @@
+body {
+  margin: 0;
+  padding: 0;
+  background-color: var(--telekom-color-background-canvas);
+  color: var(--telekom-color-text-and-icon-standard);
+}
