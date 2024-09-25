@@ -40,7 +40,7 @@ func NewKeycloakConnector(url, clientID, clientSecret, loginRealm string, userRe
 
 	jwt, err := connector.client.LoginClient(context.Background(), clientID, clientSecret, loginRealm)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("LoginClient id %q secret %q realm %q error %v", clientID, clientSecret, loginRealm, err)
 	}
 	rptResult, err := connector.client.RetrospectToken(context.Background(), jwt.AccessToken, clientID, clientSecret, loginRealm)
 	if err != nil {
@@ -344,7 +344,7 @@ func (k *KeycloakConnector) DropBreakglass(ctx context.Context, userID, groupNam
 func (k *KeycloakConnector) SearchGroups(ctx context.Context, query string) ([]*gocloak.Group, error) {
 	token, err := k.GetKeycloakAuthToken(ctx)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("getting keycloak auth token error: %v", err)
 	}
 
 	return k.client.GetGroups(ctx, token.AccessToken, k.userRealm, gocloak.GetGroupsParams{

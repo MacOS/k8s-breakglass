@@ -15,6 +15,7 @@ import (
 type SubjectAccessReviewResponseStatus struct {
 	Allowed bool `json:"allowed"`
 }
+
 type SubjectAccessReviewResponse struct {
 	ApiVersion string                            `json:"apiVersion"`
 	Kind       string                            `json:"kind"`
@@ -48,7 +49,7 @@ func (wc *WebhookController) handleAuthorize(c *gin.Context) {
 
 	fmt.Println("--------------------------------------------------------------------------------------------")
 	fmt.Printf(`User %q with would like to access cluster %q groups are %q
-  Requested operation %q %q version %q for namespace %q group %q`,
+  Requested operation %q %q version %q for namespace %q and group %q.`,
 		sar.Spec.User,
 		cluster,
 		sar.Spec.Groups,
@@ -76,4 +77,8 @@ func NewWebhookController(log *zap.SugaredLogger, cfg config.Config) *WebhookCon
 	}
 
 	return controller
+}
+
+func (b WebhookController) Handlers() []gin.HandlerFunc {
+	return []gin.HandlerFunc{}
 }

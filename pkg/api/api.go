@@ -14,15 +14,24 @@ import (
 type APIController interface {
 	BasePath() string
 	Register(rg *gin.RouterGroup) error
+	Handlers() []gin.HandlerFunc
 }
 
 type Server struct {
 	gin    *gin.Engine
 	config config.Config
-	auth   *authHandler
+	auth   *AuthHandler
+}
+type ServerConfig struct {
+	Auth  *AuthHandler
+	Log   *zap.Logger
+	Cfg   config.Config
+	Debug bool
 }
 
-func NewServer(log *zap.Logger, cfg config.Config, debug bool) *Server {
+func NewServer(log *zap.Logger, cfg config.Config,
+	debug bool, auth *AuthHandler,
+) *Server {
 	if !debug {
 		gin.SetMode(gin.ReleaseMode)
 	}
@@ -38,7 +47,7 @@ func NewServer(log *zap.Logger, cfg config.Config, debug bool) *Server {
 	if debug {
 		engine.Use(
 			cors.New(cors.Config{
-				AllowOrigins: []string{"http://localhost:5173"},
+				AllowOrigins: []string{"http://localhost:5173", "127.0.0.1:8080"},
 				AllowMethods: []string{"GET", "PUT", "PATCH", "POST", "OPTIONS"},
 				AllowHeaders: []string{"Origin", "Authorization", "Content-Type"},
 				MaxAge:       12 * time.Hour,
@@ -46,7 +55,9 @@ func NewServer(log *zap.Logger, cfg config.Config, debug bool) *Server {
 		)
 	}
 
-	auth := newAuth(log.Sugar(), cfg)
+	if auth == nil {
+		auth = NewAuth(log.Sugar(), cfg)
+	}
 
 	s := &Server{
 		gin:    engine,
@@ -61,8 +72,11 @@ func NewServer(log *zap.Logger, cfg config.Config, debug bool) *Server {
 
 func (s *Server) RegisterAll(controllers []APIController) error {
 	r := s.gin.Group("api")
+	// s.auth.middleware()
 	for _, c := range controllers {
-		if err := c.Register(r.Group(c.BasePath(), s.auth.middleware())); err != nil {
+		// TODO: The middleware should be APIController based
+		if err := c.Register(r.Group(c.BasePath(), c.Handlers()...)); err != nil {
+			// if err := c.Register(r.Group(c.BasePath())); err != nil {
 			return err
 		}
 	}

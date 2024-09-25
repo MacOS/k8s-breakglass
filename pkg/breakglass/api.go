@@ -26,7 +26,6 @@ func sendError(c *gin.Context, code int, err error) {
 }
 
 func (b *BreakglassController) Register(rg *gin.RouterGroup) error {
-
 	rg.GET("/", b.getActiveBreakglass)
 	rg.GET("/available", b.getAvailableBreakglasses)
 	rg.POST("/request", b.requestBreakglass)
@@ -76,7 +75,6 @@ func getApprovers(ctx context.Context, keycloak *KeycloakConnector, approvalGrou
 		}
 	}
 	return maps.Keys(approvers), nil
-
 }
 
 func fullNameFromUser(user gocloak.User) string {

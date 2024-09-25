@@ -10,10 +10,11 @@ import (
 	"gitlab.devops.telekom.de/schiff/engine/go-breakglass.git/pkg/breakglass"
 	"gitlab.devops.telekom.de/schiff/engine/go-breakglass.git/pkg/config"
 	"gitlab.devops.telekom.de/schiff/engine/go-breakglass.git/pkg/system"
+	"gitlab.devops.telekom.de/schiff/engine/go-breakglass.git/pkg/webhook"
 )
 
 func main() {
-	debug := false
+	debug := true
 	flag.BoolVar(&debug, "debug", false, "enables debug mode")
 	flag.Parse()
 
@@ -29,10 +30,12 @@ func main() {
 		log.Infof("%#v", config)
 	}
 
-	server := api.NewServer(log.Desugar(), config, debug)
+	auth := api.NewAuth(log, config)
+	server := api.NewServer(log.Desugar(), config, debug, auth)
 
 	server.RegisterAll([]api.APIController{
-		breakglass.NewBreakglassController(log, config),
+		breakglass.NewBreakglassController(log, config, auth.Middleware()),
+		webhook.NewWebhookController(log, config),
 	})
 
 	server.Listen()

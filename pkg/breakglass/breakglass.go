@@ -3,9 +3,11 @@ package breakglass
 import (
 	"context"
 	"crypto/rsa"
+	"fmt"
 	"sync"
 	"time"
 
+	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v4"
 	"gitlab.devops.telekom.de/schiff/engine/go-breakglass.git/pkg/config"
 	"gitlab.devops.telekom.de/schiff/engine/go-breakglass.git/pkg/mail"
@@ -26,6 +28,7 @@ type BreakglassController struct {
 
 	jwtPrivateKey *rsa.PrivateKey
 	jwtPublicKey  *rsa.PublicKey
+	middleware    gin.HandlerFunc
 }
 
 type Requestor struct {
@@ -39,11 +42,14 @@ type BreakglassJWTClaims struct {
 	Requestor  Requestor         `json:"requestor"`
 }
 
-func NewBreakglassController(log *zap.SugaredLogger, cfg config.Config) *BreakglassController {
+func NewBreakglassController(log *zap.SugaredLogger,
+	cfg config.Config, middleware gin.HandlerFunc,
+) *BreakglassController {
 	controller := &BreakglassController{
-		log:    log,
-		config: cfg,
-		mail:   mail.NewSender(cfg),
+		log:        log,
+		config:     cfg,
+		mail:       mail.NewSender(cfg),
+		middleware: middleware,
 	}
 
 	connector, err := NewKeycloakConnector(
@@ -90,7 +96,7 @@ func (b *BreakglassController) getTransitions() ([]config.Transition, error) {
 
 	discoveredTransitions, err := b.discoverTransitions(context.Background())
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to discover transitions error: %v", err)
 	}
 
 	transitions := b.config.PossibleTransitions
@@ -182,6 +188,10 @@ func (b *BreakglassController) getUserTransitions(ctx context.Context, userId st
 	}
 
 	return userTransitions, nil
+}
+
+func (b *BreakglassController) Handlers() []gin.HandlerFunc {
+	return []gin.HandlerFunc{b.middleware}
 }
 
 func contains(arr []string, s string) bool {

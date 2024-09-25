@@ -17,11 +17,11 @@ const (
 	AuthHeaderKey = "Authorization"
 )
 
-type authHandler struct {
+type AuthHandler struct {
 	jwks *keyfunc.JWKS
 }
 
-func newAuth(log *zap.SugaredLogger, cfg config.Config) *authHandler {
+func NewAuth(log *zap.SugaredLogger, cfg config.Config) *AuthHandler {
 	options := keyfunc.Options{
 		RefreshInterval: time.Hour,
 		RefreshTimeout:  time.Second * 10,
@@ -37,12 +37,12 @@ func newAuth(log *zap.SugaredLogger, cfg config.Config) *authHandler {
 		log.Fatalf("Could not get JWKS: %v\n", err)
 	}
 
-	return &authHandler{
+	return &AuthHandler{
 		jwks: jwks,
 	}
 }
 
-func (a *authHandler) middleware() gin.HandlerFunc {
+func (a *AuthHandler) Middleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if c.Request.Method == http.MethodOptions {
 			c.Next()

@@ -2,6 +2,7 @@ package breakglass
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/Nerzal/gocloak/v13"
@@ -18,22 +19,22 @@ const (
 func (b *BreakglassController) discoverTransitions(ctx context.Context) ([]config.Transition, error) {
 	appownerGroups, err := b.keycloak.SearchGroups(ctx, AppownerSuffix)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("search groups with query %q error: %v", AppownerSuffix, err)
 	}
 
 	collaboratorGroups, err := b.keycloak.SearchGroups(ctx, CollaboratorSuffix)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("search groups with query %q error: %v", AppownerSuffix, err)
 	}
 
 	poweruserGroups, err := b.keycloak.SearchGroups(ctx, PoweruserSuffix)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("search groups with query %q error: %v", AppownerSuffix, err)
 	}
 
 	powerGroups, err := b.keycloak.SearchGroups(ctx, DebugSuffix)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("search groups with query %q error: %v", AppownerSuffix, err)
 	}
 
 	transitions := []config.Transition{}
