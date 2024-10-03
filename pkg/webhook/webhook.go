@@ -5,15 +5,18 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"gitlab.devops.telekom.de/schiff/engine/go-breakglass.git/pkg/config"
+	accessreview "gitlab.devops.telekom.de/schiff/engine/go-breakglass.git/pkg/webhook/access_review"
 	"go.uber.org/zap"
 	"k8s.io/kubernetes/pkg/apis/authorization"
 )
 
 type SubjectAccessReviewResponseStatus struct {
-	Allowed bool `json:"allowed"`
+	Allowed bool   `json:"allowed"`
+	Reason  string `json:"reason"`
 }
 
 type SubjectAccessReviewResponse struct {
@@ -23,8 +26,9 @@ type SubjectAccessReviewResponse struct {
 }
 
 type WebhookController struct {
-	log    *zap.SugaredLogger
-	config config.Config
+	log     *zap.SugaredLogger
+	config  config.Config
+	manager *accessreview.InMemManager
 }
 
 func (WebhookController) BasePath() string {
@@ -38,6 +42,7 @@ func (wc *WebhookController) Register(rg *gin.RouterGroup) error {
 
 func (wc *WebhookController) handleAuthorize(c *gin.Context) {
 	cluster := c.Param("cluster_name")
+
 	sar := authorization.SubjectAccessReview{}
 	err := json.NewDecoder(c.Request.Body).Decode(&sar)
 	fmt.Println(cluster)
@@ -47,10 +52,13 @@ func (wc *WebhookController) handleAuthorize(c *gin.Context) {
 		return
 	}
 
-	fmt.Println("--------------------------------------------------------------------------------------------")
-	fmt.Printf(`User %q with would like to access cluster %q groups are %q
-  Requested operation %q %q version %q for namespace %q and group %q.`,
+	fmt.Println("----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------")
+	fmt.Printf(`User %q (uid=%q) would like to access cluster %q groups are %q
+    Requested operation %q %q version %q for namespace %q and group %q. Extra info: %#v
+    NonResource: %#v
+    `,
 		sar.Spec.User,
+		sar.Spec.UID,
 		cluster,
 		sar.Spec.Groups,
 		sar.Spec.ResourceAttributes.Verb,
@@ -58,22 +66,38 @@ func (wc *WebhookController) handleAuthorize(c *gin.Context) {
 		sar.Spec.ResourceAttributes.Version,
 		sar.Spec.ResourceAttributes.Namespace,
 		sar.Spec.ResourceAttributes.Group,
+		sar.Spec.Extra,
+		sar.Spec.NonResourceAttributes,
 	)
-	fmt.Println("\n----------------------------------------------------------------------------------------\n")
+	fmt.Println("\n--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------\n")
+
+	ar := accessreview.NewAccessReview(sar.Spec, time.Minute*5)
+	allowed := false
+	reason := ""
+	if wc.manager.ShouldAllow(sar.Spec) {
+		allowed = true
+	} else {
+		reason = "Access needs to be reviewed by administrator"
+		wc.manager.AddAccessReview(ar)
+	}
 
 	response := SubjectAccessReviewResponse{
 		ApiVersion: sar.APIVersion,
 		Kind:       sar.Kind,
-		Status:     SubjectAccessReviewResponseStatus{Allowed: true},
+		Status: SubjectAccessReviewResponseStatus{
+			Allowed: allowed,
+			Reason:  reason,
+		},
 	}
 
 	c.JSON(http.StatusOK, &response)
 }
 
-func NewWebhookController(log *zap.SugaredLogger, cfg config.Config) *WebhookController {
+func NewWebhookController(log *zap.SugaredLogger, cfg config.Config, manager *accessreview.InMemManager) *WebhookController {
 	controller := &WebhookController{
-		log:    log,
-		config: cfg,
+		log:     log,
+		config:  cfg,
+		manager: manager,
 	}
 
 	return controller

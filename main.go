@@ -11,6 +11,7 @@ import (
 	"gitlab.devops.telekom.de/schiff/engine/go-breakglass.git/pkg/config"
 	"gitlab.devops.telekom.de/schiff/engine/go-breakglass.git/pkg/system"
 	"gitlab.devops.telekom.de/schiff/engine/go-breakglass.git/pkg/webhook"
+	accessreview "gitlab.devops.telekom.de/schiff/engine/go-breakglass.git/pkg/webhook/access_review"
 )
 
 func main() {
@@ -33,10 +34,14 @@ func main() {
 	auth := api.NewAuth(log, config)
 	server := api.NewServer(log.Desugar(), config, debug, auth)
 
-	server.RegisterAll([]api.APIController{
+	reviewManager := accessreview.NewInMemManger()
+	err = server.RegisterAll([]api.APIController{
 		breakglass.NewBreakglassController(log, config, auth.Middleware()),
-		webhook.NewWebhookController(log, config),
+		webhook.NewWebhookController(log, config, reviewManager),
 	})
+	if err != nil {
+		log.Fatalf("Error registering breakglass controllers: %v", err)
+	}
 
 	server.Listen()
 }
