@@ -37,7 +37,7 @@ func main() {
 	reviewManager := accessreview.NewInMemManger()
 	err = server.RegisterAll([]api.APIController{
 		breakglass.NewBreakglassController(log, config, auth.Middleware()),
-		webhook.NewWebhookController(log, config, reviewManager),
+		webhook.NewWebhookController(log, config, &reviewManager),
 	})
 	if err != nil {
 		log.Fatalf("Error registering breakglass controllers: %v", err)

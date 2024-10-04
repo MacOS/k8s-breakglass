@@ -18,7 +18,7 @@ type AccessReview struct {
 	Subject  authorization.SubjectAccessReviewSpec
 	Status   AccessReviewStatus
 	Until    time.Time
-	TimeNow  func() time.Time
+	TimeNow  func() time.Time `json:"-"`
 	Duration time.Duration
 }
 
@@ -35,4 +35,8 @@ func NewAccessReview(subject authorization.SubjectAccessReviewSpec,
 	}
 
 	return ar
+}
+
+func (ar AccessReview) IsValid() bool {
+	return ar.TimeNow().Before(ar.Until)
 }
