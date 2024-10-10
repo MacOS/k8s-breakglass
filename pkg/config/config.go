@@ -2,7 +2,6 @@ package config
 
 import (
 	"fmt"
-	"io/ioutil"
 	"os"
 
 	"github.com/google/go-cmp/cmp"
@@ -52,7 +51,9 @@ type Server struct {
 	TLSKeyFile    string `yaml:"tlsKeyFile"`
 	BaseURL       string `yaml:"baseURL"`
 }
-
+type ClusterAccess struct {
+	DBPath string `yaml:"dbPath"`
+}
 type Config struct {
 	Server                 Server
 	PossibleTransitions    []Transition
@@ -61,6 +62,7 @@ type Config struct {
 	BreakglassJWT          JWT
 	Mail                   Mail
 	Frontend               Frontend
+	ClusterAccess          ClusterAccess
 }
 
 func Load() (Config, error) {
@@ -71,7 +73,7 @@ func Load() (Config, error) {
 		configPath = "./config.yaml"
 	}
 
-	content, err := ioutil.ReadFile(configPath)
+	content, err := os.ReadFile(configPath)
 	if err != nil {
 		return config, fmt.Errorf("trying to open breakglass config file %s: %v", configPath, err)
 	}

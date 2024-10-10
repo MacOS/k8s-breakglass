@@ -13,6 +13,7 @@ require (
 	github.com/gin-gonic/gin v1.8.1
 	github.com/golang-jwt/jwt/v4 v4.5.0
 	github.com/google/go-cmp v0.6.0
+	github.com/mattn/go-sqlite3 v1.14.24
 	github.com/pkg/errors v0.9.1
 	go.uber.org/zap v1.26.0
 	golang.org/x/exp v0.0.0-20230515195305-f3d0a9c9a5cc

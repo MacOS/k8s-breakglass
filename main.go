@@ -34,10 +34,14 @@ func main() {
 	auth := api.NewAuth(log, config)
 	server := api.NewServer(log.Desugar(), config, debug, auth)
 
-	reviewManager := accessreview.NewInMemManger()
+	reviewDB, err := accessreview.NewAccessReviewDB(log, config)
+	if err != nil {
+		log.Fatalf("Error creating access review database manager: %v", err)
+	}
+
 	err = server.RegisterAll([]api.APIController{
 		breakglass.NewBreakglassController(log, config, auth.Middleware()),
-		webhook.NewWebhookController(log, config, &reviewManager),
+		webhook.NewWebhookController(log, config, &reviewDB),
 	})
 	if err != nil {
 		log.Fatalf("Error registering breakglass controllers: %v", err)

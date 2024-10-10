@@ -9,7 +9,7 @@ import (
 type ClusterAccessReviewController struct {
 	log     *zap.SugaredLogger
 	config  config.Config
-	manager *InMemManager
+	manager *AccessReviewDB
 }
 
 func (ClusterAccessReviewController) BasePath() string {
@@ -29,6 +29,6 @@ func (b ClusterAccessReviewController) Handlers() []gin.HandlerFunc {
 
 func (wc ClusterAccessReviewController) handleGetReviews(c *gin.Context) {
 	// Will return list of actual reviews or since some time passed by user and other parameters like status etc
-	reviews := wc.manager.GetAccessReviews()
+	reviews, _ := wc.manager.GetAccessReviews()
 	c.JSON(200, reviews)
 }

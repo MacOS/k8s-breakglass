@@ -15,22 +15,23 @@ const (
 )
 
 type AccessReview struct {
+	ID       uint
+	Cluster  string
 	Subject  authorization.SubjectAccessReviewSpec
 	Status   AccessReviewStatus
 	Until    time.Time
-	TimeNow  func() time.Time `json:"-"`
 	Duration time.Duration
 }
 
-func NewAccessReview(subject authorization.SubjectAccessReviewSpec,
+func NewAccessReview(cluster string, subject authorization.SubjectAccessReviewSpec,
 	duration time.Duration,
 ) AccessReview {
 	until := time.Now().Add(duration)
 	ar := AccessReview{
+		Cluster:  cluster,
 		Subject:  subject,
 		Status:   StatusPending,
 		Until:    until,
-		TimeNow:  time.Now,
 		Duration: duration,
 	}
 
@@ -38,5 +39,6 @@ func NewAccessReview(subject authorization.SubjectAccessReviewSpec,
 }
 
 func (ar AccessReview) IsValid() bool {
-	return ar.TimeNow().Before(ar.Until)
+	timeNow := time.Now()
+	return timeNow.Before(ar.Until)
 }
