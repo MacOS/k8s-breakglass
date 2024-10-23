@@ -140,6 +140,7 @@ func (wc *WebhookController) handleAuthorize(c *gin.Context) {
 func (wc WebhookController) GetSubjectReviews(
 	cluster string, s authorization.SubjectAccessReviewSpec,
 ) ([]accessreview.AccessReview, error) {
+	// TODO: user can be anonymous then we probably want to return empty
 	reviews, err := wc.db.GetClusterUserReviews(cluster, s.User)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed get cluster %q subject reviews for user %q", cluster, s.User)

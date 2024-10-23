@@ -1,7 +1,9 @@
 package accessreview
 
 import (
+	"log"
 	"net/http"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
 	"gitlab.devops.telekom.de/schiff/engine/go-breakglass.git/pkg/config"
@@ -20,8 +22,8 @@ func (ClusterAccessReviewController) BasePath() string {
 
 func (wc *ClusterAccessReviewController) Register(rg *gin.RouterGroup) error {
 	rg.GET("/reviews", wc.handleGetReviews)
-	// TODO: approval mechanism
-	rg.POST("/approve", wc.handleGetReviews)
+	rg.POST("/accept/:id", wc.handleAccept)
+	rg.POST("/reject/:id", wc.handleReject)
 	return nil
 }
 
@@ -30,9 +32,39 @@ func (b ClusterAccessReviewController) Handlers() []gin.HandlerFunc {
 }
 
 func (wc ClusterAccessReviewController) handleGetReviews(c *gin.Context) {
-	// Will return list of actual reviews or since some time passed by user and other parameters like status etc
-	reviews, _ := wc.manager.GetAccessReviews()
+	reviews, err := wc.manager.GetAccessReviews()
+	if err != nil {
+		log.Printf("Error getting access reviews %v", err)
+		c.JSON(http.StatusInternalServerError, "Failed to extract review information")
+		return
+	}
+
 	c.JSON(http.StatusOK, reviews)
+}
+
+func (wc ClusterAccessReviewController) handleAccept(c *gin.Context) {
+	wc.handleStatusChange(c, StatusAccepted)
+}
+
+func (wc ClusterAccessReviewController) handleReject(c *gin.Context) {
+	wc.handleStatusChange(c, StatusRejected)
+}
+
+func (wc ClusterAccessReviewController) handleStatusChange(c *gin.Context, newStatus AccessReviewStatus) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		log.Printf("Error getting id from request %v", err)
+		c.JSON(http.StatusBadRequest, "Failed to parse input id")
+		return
+	}
+	err = wc.manager.UpdateReviewStatus(uint(id), newStatus)
+	if err != nil {
+		log.Printf("Error getting access review with id %q %v", id, err)
+		c.JSON(http.StatusInternalServerError, "Failed to extract review information")
+		return
+	}
+
+	c.Status(http.StatusOK)
 }
 
 func NewClusterAccessReviewController(log *zap.SugaredLogger,

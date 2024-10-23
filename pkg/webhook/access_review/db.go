@@ -92,6 +92,15 @@ func (c AccessReviewDB) GetAccessReviews() (ars []AccessReview, err error) {
 	return c.getAccessReviewsQuery(query)
 }
 
+func (c AccessReviewDB) GetAccessReviewByID(id uint) (ar AccessReview, err error) {
+	query := `SELECT * FROM access_reviews WHERE id=?`
+	revs, err := c.getAccessReviewsQuery(query, id)
+	if len(revs) > 0 {
+		ar = revs[0]
+	}
+	return ar, err
+}
+
 func (c AccessReviewDB) GetClusterReviews(cluster string) ([]AccessReview, error) {
 	query := `SELECT * FROM access_reviews WHERE cluster=?`
 	return c.getAccessReviewsQuery(query, cluster)
