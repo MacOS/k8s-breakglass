@@ -63,6 +63,7 @@ func (c AccessReviewDB) AddAccessReview(ar AccessReview) error {
 }
 
 func (c AccessReviewDB) getAccessReviewsQuery(query string, args ...any) (ars []AccessReview, err error) {
+	rs = []AccessReview{}
 	rows, err := c.readDB.Query(query, args...)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to select access reviews from db")
