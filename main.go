@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	stdlog "log"
 
 	"go.uber.org/zap"
@@ -37,6 +38,22 @@ func main() {
 	reviewDB, err := accessreview.NewAccessReviewDB(log, config)
 	if err != nil {
 		log.Fatalf("Error creating access review database manager: %v", err)
+	}
+
+	crdManager, err := accessreview.NewCRDManager()
+	if err != nil {
+		log.Fatalf("Error creating access review CRD manager: %v", err)
+		return
+	}
+
+	ars, err := crdManager.GetAccessReviews()
+	if err != nil {
+		log.Fatalf("Error getting reviews from access review CRD manager: %v", err)
+		return
+	}
+
+	for id, ar := range ars {
+		fmt.Println("Current ar", id, " SPEC:=", ar.Spec)
 	}
 
 	err = server.RegisterAll([]api.APIController{
