@@ -12,7 +12,7 @@ spec:
     listKind: ClusterAccessReviewList
     plural: clusteraccessreviews
     singular: clusteraccessreview
-  scope: Namespaced
+  scope: Cluster
   versions:
   - name: v1alpha1
     schema:
@@ -41,13 +41,15 @@ spec:
             description: ClusterAccessReviewSpec defines the desired state of ClusterAccessReview.
             properties:
               application_status:
+                enum:
+                - pending
+                - accepted
+                - rejected
                 type: string
               cluster:
                 type: string
               duration:
                 type: string
-              id:
-                type: integer
               subject:
                 properties:
                   namespace:
@@ -58,17 +60,24 @@ spec:
                     type: string
                   verb:
                     type: string
+                required:
+                - username
                 type: object
               until:
                 format: date-time
                 type: string
+            required:
+            - application_status
+            - cluster
+            - subject
             type: object
           status:
             description: ClusterAccessReviewStatus defines the observed state of ClusterAccessReview.
             type: object
+        required:
+        - spec
         type: object
     selectableFields:
-    - jsonPath: .spec.id
     - jsonPath: .spec.cluster
     - jsonPath: .spec.application_status
     - jsonPath: .spec.until

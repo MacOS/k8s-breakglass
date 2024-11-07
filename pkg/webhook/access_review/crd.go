@@ -8,8 +8,10 @@ import (
 	"github.com/pkg/errors"
 	"gitlab.devops.telekom.de/schiff/engine/go-breakglass.git/pkg/webhook/access_review/api/v1alpha1"
 	telekomv1alpha1 "gitlab.devops.telekom.de/schiff/engine/go-breakglass.git/pkg/webhook/access_review/api/v1alpha1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -20,7 +22,10 @@ type CRDManager struct {
 	client.Client
 }
 
-var scheme = runtime.NewScheme()
+var (
+	scheme            = runtime.NewScheme()
+	ErrAccessNotFound = errors.New("access not found")
+)
 
 const cliTimeout = 5 * time.Minute
 
@@ -44,11 +49,16 @@ func NewCRDManager() (CRDManager, error) {
 }
 
 func (c CRDManager) AddAccessReview(car v1alpha1.ClusterAccessReview) error {
-	// TODO: Probably want to add here some logic related to generation of random id or iterating the car id
+	if car.Spec.Cluster == "" || car.Spec.Subject.Username == "" {
+		return errors.New("ClusterAccessReview muse provide spec.cluster name and spec.subject.username")
+	}
+	if car.Name == "" {
+		car.GenerateName = fmt.Sprintf("%s-%s-", car.Spec.Cluster, car.Spec.Subject.Username)
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), cliTimeout)
 	defer cancel()
 	if err := c.Create(ctx, &car); err != nil {
-		return errors.Wrap(err, "failed to create new access review")
+		return errors.Wrap(err, "failed to create new cluster access review")
 	}
 
 	return nil
@@ -59,7 +69,7 @@ func (c CRDManager) GetReviews() ([]v1alpha1.ClusterAccessReview, error) {
 	defer cancel()
 	carls := v1alpha1.ClusterAccessReviewList{}
 	if err := c.List(ctx, &carls); err != nil {
-		return nil, fmt.Errorf(": %w", err)
+		return nil, errors.Wrap(err, "failed to get clusterAccessReviews")
 	}
 
 	return carls.Items, nil
@@ -70,9 +80,28 @@ func (c CRDManager) GetClusterUserReviews(cluster, user string) (car []v1alpha1.
 	return c.getClusterUserReviewsByFieldSelector(selector)
 }
 
-func (c CRDManager) GetClusterAccessReviewsByID(id uint) (car []v1alpha1.ClusterAccessReview, err error) {
-	selector := fmt.Sprintf("spec.id=%d", id)
-	return c.getClusterUserReviewsByFieldSelector(selector)
+func (c CRDManager) GetClusterAccessReviewsByUID(uid types.UID) (v1alpha1.ClusterAccessReview, error) {
+	allReviews, err := c.GetReviews()
+	if err != nil {
+		return v1alpha1.ClusterAccessReview{}, fmt.Errorf("failed to get reviews by uid listing: %w", err)
+	}
+	for _, ar := range allReviews {
+		if ar.UID == uid {
+			return ar, nil
+		}
+	}
+
+	return v1alpha1.ClusterAccessReview{}, ErrAccessNotFound
+}
+
+func (c CRDManager) DeleteReviewByName(name string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), cliTimeout)
+	defer cancel()
+	if err := c.Delete(ctx, &v1alpha1.ClusterAccessReview{ObjectMeta: metav1.ObjectMeta{Name: name}}); err != nil {
+		return errors.Wrap(err, "failed to delete cluster access review")
+	}
+
+	return nil
 }
 
 func (c CRDManager) getClusterUserReviewsByFieldSelector(selector string) ([]v1alpha1.ClusterAccessReview, error) {

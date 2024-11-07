@@ -22,14 +22,15 @@ import (
 
 // ClusterAccessReviewSpec defines the desired state of ClusterAccessReview.
 type ClusterAccessReviewSpec struct {
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
 
-	ID      uint   `json:"id,omitempty"`
+	// +required
 	Cluster string `json:"cluster,omitempty"`
-
-	Subject  ClusterAccessReviewSubject    `json:"subject,omitempty"`
-	Status   AccessReviewApplicationStatus `json:"application_status,omitempty"`
+	// +required
+	Subject ClusterAccessReviewSubject `json:"subject"`
+	// +required
+	// +kubebuilder:validation:Enum:={"pending","accepted","rejected"}
+	Status   AccessReviewApplicationStatus `json:"application_status"`
 	Until    metav1.Time                   `json:"until,omitempty"`
 	Duration metav1.Duration               `json:"duration,omitempty"`
 }
@@ -39,26 +40,26 @@ type (
 		Namespace string `json:"namespace,omitempty"`
 		Verb      string `json:"verb,omitempty"`
 		Resource  string `json:"resource,omitempty"`
-		Username  string `json:"username,omitempty"`
+		// +required
+		Username string `json:"username"`
 	}
 	AccessReviewApplicationStatus string
 )
 
 const (
-	StatusPending  AccessReviewApplicationStatus = "Pending"
-	StatusAccepted AccessReviewApplicationStatus = "Accepted"
-	StatusRejected AccessReviewApplicationStatus = "Rejected"
+	StatusPending  AccessReviewApplicationStatus = "pending"
+	StatusAccepted AccessReviewApplicationStatus = "accepted"
+	StatusRejected AccessReviewApplicationStatus = "rejected"
 )
 
 // ClusterAccessReviewStatus defines the observed state of ClusterAccessReview.
 type ClusterAccessReviewStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
 }
 
+// +kubebuilder:resource:scope=Cluster
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
-// +kubebuilder:selectablefield:JSONPath=`.spec.id`
 // +kubebuilder:selectablefield:JSONPath=`.spec.cluster`
 // +kubebuilder:selectablefield:JSONPath=`.spec.application_status`
 // +kubebuilder:selectablefield:JSONPath=`.spec.until`
@@ -72,7 +73,8 @@ type ClusterAccessReview struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   ClusterAccessReviewSpec   `json:"spec,omitempty"`
+	// +required
+	Spec   ClusterAccessReviewSpec   `json:"spec"`
 	Status ClusterAccessReviewStatus `json:"status,omitempty"`
 }
 
