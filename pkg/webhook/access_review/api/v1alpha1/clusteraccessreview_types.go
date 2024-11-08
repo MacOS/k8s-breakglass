@@ -17,6 +17,8 @@ limitations under the License.
 package v1alpha1
 
 import (
+	"time"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -37,11 +39,11 @@ type ClusterAccessReviewSpec struct {
 
 type (
 	ClusterAccessReviewSubject struct {
-		Namespace string `json:"namespace,omitempty"`
-		Verb      string `json:"verb,omitempty"`
-		Resource  string `json:"resource,omitempty"`
 		// +required
-		Username string `json:"username"`
+		Username  string `json:"username"`
+		Namespace string `json:"namespace,omitempty"`
+		Resource  string `json:"resource,omitempty"`
+		Verb      string `json:"verb,omitempty"`
 	}
 	AccessReviewApplicationStatus string
 )
@@ -89,4 +91,21 @@ type ClusterAccessReviewList struct {
 
 func init() {
 	SchemeBuilder.Register(&ClusterAccessReview{}, &ClusterAccessReviewList{})
+}
+
+func NewClusterAccessReview(cluster string, subject ClusterAccessReviewSubject,
+	duration time.Duration,
+) ClusterAccessReview {
+	until := time.Now().Add(duration)
+	ar := ClusterAccessReview{
+		Spec: ClusterAccessReviewSpec{
+			Cluster:  cluster,
+			Subject:  subject,
+			Status:   StatusPending,
+			Until:    metav1.NewTime(until),
+			Duration: metav1.Duration{Duration: duration},
+		},
+	}
+
+	return ar
 }

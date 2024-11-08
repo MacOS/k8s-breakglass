@@ -75,6 +75,10 @@ func (c CRDManager) GetReviews() ([]v1alpha1.ClusterAccessReview, error) {
 	return carls.Items, nil
 }
 
+func (c CRDManager) GetReviewByName() (v1alpha1.ClusterAccessReview, error) {
+	return v1alpha1.ClusterAccessReview{}, nil
+}
+
 func (c CRDManager) GetClusterUserReviews(cluster, user string) (car []v1alpha1.ClusterAccessReview, err error) {
 	selector := fmt.Sprintf("spec.subject.username=%s,spec.cluster=%s", user, cluster)
 	return c.getClusterUserReviewsByFieldSelector(selector)
@@ -114,8 +118,25 @@ func (c CRDManager) getClusterUserReviewsByFieldSelector(selector string) ([]v1a
 	ctx, cancel := context.WithTimeout(context.Background(), cliTimeout)
 	defer cancel()
 	if err := c.List(ctx, &carls, &client.ListOptions{FieldSelector: fs}); err != nil {
-		return nil, errors.Wrapf(err, "failed to list reviews with selector: %q", err)
+		return nil, errors.Wrapf(err, "failed to list reviews with selector: %q", selector)
 	}
 
 	return carls.Items, nil
+}
+
+func (c CRDManager) UpdateReviewStatusByName(resourceName string, status v1alpha1.AccessReviewApplicationStatus) error {
+	ctx, cancel := context.WithTimeout(context.Background(), cliTimeout)
+	defer cancel()
+	toUpdate := v1alpha1.ClusterAccessReview{
+		ObjectMeta: metav1.ObjectMeta{Name: resourceName},
+		Spec:       v1alpha1.ClusterAccessReviewSpec{Status: status},
+	}
+	if err := c.Update(ctx, &toUpdate); err != nil {
+		return errors.Wrapf(err, "failed to update review with name %q", resourceName)
+	}
+	return nil
+}
+
+func (c CRDManager) DeleteReviewsOlderThan(time time.Time) error {
+	return nil
 }

@@ -5,13 +5,13 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"reflect"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/pkg/errors"
 	"gitlab.devops.telekom.de/schiff/engine/go-breakglass.git/pkg/config"
 	accessreview "gitlab.devops.telekom.de/schiff/engine/go-breakglass.git/pkg/webhook/access_review"
+	"gitlab.devops.telekom.de/schiff/engine/go-breakglass.git/pkg/webhook/access_review/api/v1alpha1"
 	"go.uber.org/zap"
 	"k8s.io/kubernetes/pkg/apis/authorization"
 )
@@ -30,9 +30,9 @@ type SubjectAccessReviewResponse struct {
 }
 
 type WebhookController struct {
-	log    *zap.SugaredLogger
-	config config.Config
-	db     *accessreview.AccessReviewDB
+	log     *zap.SugaredLogger
+	config  config.Config
+	manager *accessreview.CRDManager
 }
 
 func (WebhookController) BasePath() string {
@@ -80,7 +80,13 @@ func (wc *WebhookController) handleAuthorize(c *gin.Context) {
 	)
 	fmt.Println("\n--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------\n")
 
-	ar := accessreview.NewAccessReview(cluster, sar.Spec, defaultReviewRequestTimeout)
+	car := v1alpha1.NewClusterAccessReview(cluster, v1alpha1.ClusterAccessReviewSubject{
+		Username:  sar.Spec.User,
+		Namespace: sar.Spec.ResourceAttributes.Namespace,
+		Resource:  sar.Spec.ResourceAttributes.Resource,
+		Verb:      sar.Spec.ResourceAttributes.Verb,
+	}, defaultReviewRequestTimeout)
+
 	allowed := false
 	reason := ""
 	reviews, err := wc.GetSubjectReviews(cluster, sar.Spec)
@@ -95,29 +101,29 @@ func (wc *WebhookController) handleAuthorize(c *gin.Context) {
 
 	if len(reviews) == 0 {
 		reason = "Access added to be reviewed by administrator."
-		if err := wc.db.AddAccessReview(ar); err != nil {
+		if err := wc.manager.AddAccessReview(car); err != nil {
 			log.Printf("Error adding access review to database: %v", err)
 			c.JSON(http.StatusInternalServerError, "Failed to process review request")
 			return
 		}
 	} else {
 		for _, review := range reviews {
-			switch review.Status {
-			case accessreview.StatusAccepted:
+			switch review.Spec.Status {
+			case v1alpha1.StatusAccepted:
 				allowed = true
-				if err := wc.db.DeleteReviewByID(ar.ID); err != nil {
+				if err := wc.manager.DeleteReviewByName(car.GetName()); err != nil {
 					log.Printf("Error deleting access review from db: %v", err)
 					c.JSON(http.StatusInternalServerError, "Failed to process review request")
 				}
-			case accessreview.StatusPending:
+			case v1alpha1.StatusPending:
 				allowed = false
 				reason = "Access pending to be reviewed by administrator."
-			case accessreview.StatusRejected:
+			case v1alpha1.StatusRejected:
 				allowed = false
 				reason = "Access already once rejected. New request will be created."
 				// TODO: Do we want some logic to only allow that after some timeout
 				// especially if rejected more than once
-				if err := wc.db.UpdateReviewStatus(review.ID, accessreview.StatusPending); err != nil {
+				if err := wc.manager.UpdateReviewStatusByName(review.GetName(), v1alpha1.StatusPending); err != nil {
 					log.Printf("Error updating access review status: %v", err)
 					c.JSON(http.StatusInternalServerError, "Failed to process review request")
 				}
@@ -139,16 +145,16 @@ func (wc *WebhookController) handleAuthorize(c *gin.Context) {
 
 func (wc WebhookController) GetSubjectReviews(
 	cluster string, s authorization.SubjectAccessReviewSpec,
-) ([]accessreview.AccessReview, error) {
+) ([]v1alpha1.ClusterAccessReview, error) {
 	// TODO: user can be anonymous then we probably want to return empty
-	reviews, err := wc.db.GetClusterUserReviews(cluster, s.User)
+	reviews, err := wc.manager.GetClusterUserReviews(cluster, s.User)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed get cluster %q subject reviews for user %q", cluster, s.User)
 	}
 
-	outReviews := []accessreview.AccessReview{}
+	outReviews := []v1alpha1.ClusterAccessReview{}
 	for _, review := range reviews {
-		if review.IsValid() && reflect.DeepEqual(review.Subject, s) {
+		if IsValid(review) && AreSubjectEqual(review.Spec.Subject, s) {
 			outReviews = append(outReviews, review)
 		}
 	}
@@ -158,7 +164,7 @@ func (wc WebhookController) GetSubjectReviews(
 func (wc WebhookController) cleanupOldReviewRequests() {
 	for {
 		wc.log.Info("Running cleanup task")
-		if err := wc.db.DeleteReviewsOlderThan(time.Now()); err != nil {
+		if err := wc.manager.DeleteReviewsOlderThan(time.Now()); err != nil {
 			wc.log.Errorf("Failed to delete old requests %v", err)
 		}
 		wc.log.Info("Finished cleanup task")
@@ -166,14 +172,26 @@ func (wc WebhookController) cleanupOldReviewRequests() {
 	}
 }
 
-func NewWebhookController(log *zap.SugaredLogger, cfg config.Config, manager *accessreview.AccessReviewDB) *WebhookController {
+func NewWebhookController(log *zap.SugaredLogger, cfg config.Config, manager *accessreview.CRDManager) *WebhookController {
 	controller := &WebhookController{
-		log:    log,
-		config: cfg,
-		db:     manager,
+		log:     log,
+		config:  cfg,
+		manager: manager,
 	}
 
 	go controller.cleanupOldReviewRequests()
 
 	return controller
+}
+
+func IsValid(car v1alpha1.ClusterAccessReview) bool {
+	timeNow := time.Now()
+	return timeNow.Before(car.Spec.Until.Time)
+}
+
+func AreSubjectEqual(carSubj v1alpha1.ClusterAccessReviewSubject, authSubj authorization.SubjectAccessReviewSpec) bool {
+	return carSubj.Username == authSubj.User &&
+		carSubj.Namespace == authSubj.ResourceAttributes.Namespace &&
+		carSubj.Resource == authSubj.ResourceAttributes.Resource &&
+		carSubj.Verb == authSubj.ResourceAttributes.Verb
 }

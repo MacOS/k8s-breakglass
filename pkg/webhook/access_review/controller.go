@@ -3,17 +3,17 @@ package accessreview
 import (
 	"log"
 	"net/http"
-	"strconv"
 
 	"github.com/gin-gonic/gin"
 	"gitlab.devops.telekom.de/schiff/engine/go-breakglass.git/pkg/config"
+	"gitlab.devops.telekom.de/schiff/engine/go-breakglass.git/pkg/webhook/access_review/api/v1alpha1"
 	"go.uber.org/zap"
 )
 
 type ClusterAccessReviewController struct {
 	log        *zap.SugaredLogger
 	config     config.Config
-	manager    *AccessReviewDB
+	manager    *CRDManager
 	middleware gin.HandlerFunc
 }
 
@@ -33,7 +33,7 @@ func (b ClusterAccessReviewController) Handlers() []gin.HandlerFunc {
 }
 
 func (wc ClusterAccessReviewController) handleGetReviews(c *gin.Context) {
-	reviews, err := wc.manager.GetAccessReviews()
+	reviews, err := wc.manager.GetReviews()
 	if err != nil {
 		log.Printf("Error getting access reviews %v", err)
 		c.JSON(http.StatusInternalServerError, "Failed to extract review information")
@@ -44,23 +44,18 @@ func (wc ClusterAccessReviewController) handleGetReviews(c *gin.Context) {
 }
 
 func (wc ClusterAccessReviewController) handleAccept(c *gin.Context) {
-	wc.handleStatusChange(c, StatusAccepted)
+	wc.handleStatusChange(c, v1alpha1.StatusAccepted)
 }
 
 func (wc ClusterAccessReviewController) handleReject(c *gin.Context) {
-	wc.handleStatusChange(c, StatusRejected)
+	wc.handleStatusChange(c, v1alpha1.StatusRejected)
 }
 
-func (wc ClusterAccessReviewController) handleStatusChange(c *gin.Context, newStatus AccessReviewApplicationStatus) {
-	id, err := strconv.Atoi(c.Param("id"))
+func (wc ClusterAccessReviewController) handleStatusChange(c *gin.Context, newStatus v1alpha1.AccessReviewApplicationStatus) {
+	name := c.Param("name")
+	err := wc.manager.UpdateReviewStatusByName(name, newStatus)
 	if err != nil {
-		log.Printf("Error getting id from request %v", err)
-		c.JSON(http.StatusBadRequest, "Failed to parse input id")
-		return
-	}
-	err = wc.manager.UpdateReviewStatus(uint(id), newStatus)
-	if err != nil {
-		log.Printf("Error getting access review with id %q %v", id, err)
+		log.Printf("Error getting access review with id %q %v", name, err)
 		c.JSON(http.StatusInternalServerError, "Failed to extract review information")
 		return
 	}
@@ -70,7 +65,7 @@ func (wc ClusterAccessReviewController) handleStatusChange(c *gin.Context, newSt
 
 func NewClusterAccessReviewController(log *zap.SugaredLogger,
 	cfg config.Config,
-	manager *AccessReviewDB,
+	manager *CRDManager,
 	middleware gin.HandlerFunc,
 ) *ClusterAccessReviewController {
 	controller := &ClusterAccessReviewController{
