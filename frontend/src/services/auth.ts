@@ -17,6 +17,7 @@ export default class AuthService {
 
   constructor(config: Config) {
     const baseURL = `${window.location.protocol}//${window.location.host}`;
+    console.log('baseURl', baseURL)
     const settings: UserManagerSettings = {
       userStore: new WebStorageStateStore({ store: window.localStorage }),
       authority: config.oidcAuthority,

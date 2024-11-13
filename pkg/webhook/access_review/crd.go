@@ -80,8 +80,18 @@ func (c CRDManager) GetReviews() ([]v1alpha1.ClusterAccessReview, error) {
 	return carls.Items, nil
 }
 
-func (c CRDManager) GetReviewByName() (v1alpha1.ClusterAccessReview, error) {
-	return v1alpha1.ClusterAccessReview{}, nil
+func (c CRDManager) GetReviewByName(name string) (v1alpha1.ClusterAccessReview, error) {
+	selector := fmt.Sprintf("metadata.name=%s", name)
+	reviews, err := c.getClusterUserReviewsByFieldSelector(selector)
+	if err != nil {
+		return v1alpha1.ClusterAccessReview{}, fmt.Errorf("failed to get reviews by name: %w", err)
+	}
+
+	if len(reviews) == 0 {
+		return v1alpha1.ClusterAccessReview{}, fmt.Errorf("failed to get reviews by uid listing: not found")
+	}
+
+	return reviews[0], nil
 }
 
 func (c CRDManager) GetClusterUserReviews(cluster, user string) (car []v1alpha1.ClusterAccessReview, err error) {
@@ -134,14 +144,35 @@ func (c CRDManager) getClusterUserReviewsByFieldSelector(selector string) ([]v1a
 func (c CRDManager) UpdateReviewStatusByName(resourceName string, status v1alpha1.AccessReviewApplicationStatus) error {
 	ctx, cancel := context.WithTimeout(context.Background(), cliTimeout)
 	defer cancel()
-	toUpdate := v1alpha1.ClusterAccessReview{
-		ObjectMeta: metav1.ObjectMeta{Name: resourceName},
-		Spec:       v1alpha1.ClusterAccessReviewSpec{Status: status},
+	st, err := c.GetReviewByName(resourceName)
+	if err != nil {
+		return fmt.Errorf("failed to get resource to update by name: %w", err)
 	}
+	st.Spec.Status = status
+
 	c.writeMutex.Lock()
 	defer c.writeMutex.Unlock()
-	if err := c.Update(ctx, &toUpdate); err != nil {
+	if err := c.Update(ctx, &st); err != nil {
 		return errors.Wrapf(err, "failed to update review with name %q", resourceName)
+	}
+	return nil
+}
+
+func (c CRDManager) UpdateReviewStatusByUID(uid types.UID, status v1alpha1.AccessReviewApplicationStatus) error {
+	ctx, cancel := context.WithTimeout(context.Background(), cliTimeout)
+	defer cancel()
+	r, err := c.GetClusterAccessReviewsByUID(uid)
+	if err != nil {
+		return fmt.Errorf(": %w", err)
+	}
+	fmt.Println(r, err)
+
+	r.Spec.Status = status
+
+	c.writeMutex.Lock()
+	defer c.writeMutex.Unlock()
+	if err := c.Update(ctx, &r); err != nil {
+		return errors.Wrapf(err, "failed to update review with name %q", r.Name)
 	}
 	return nil
 }

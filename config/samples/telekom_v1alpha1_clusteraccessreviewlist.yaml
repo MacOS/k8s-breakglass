@@ -7,7 +7,7 @@ items:
       application_status: pending
       cluster: kind
       duration: "10s"
-      until: '2017-07-21T17:32:28Z'
+      until: '2025-07-21T17:32:28Z'
       subject:
         resource: services
         username: foobar
@@ -18,7 +18,7 @@ items:
       application_status: accepted
       cluster: kind
       duration: "24h"
-      until: '2017-07-21T17:32:28Z'
+      until: '2025-07-21T17:32:28Z'
       subject:
         namespace: kube-system
         resource: services
@@ -30,7 +30,7 @@ items:
       application_status: rejected
       cluster: kind
       duration: "20m"
-      until: '2017-07-21T17:32:28Z'
+      until: '2025-07-21T17:32:28Z'
       subject:
         namespace: default
         resource: pods
@@ -42,7 +42,7 @@ items:
       application_status: accepted
       cluster: master
       duration: "20m"
-      until: '2017-07-21T17:32:28Z'
+      until: '2025-07-21T17:32:28Z'
       subject:
         namespace: default
         resource: pods

@@ -27,27 +27,18 @@ onMounted(async () => {
 
 async function refresh() {
   state.refreshing = true;
-  // state.reviews = await clusterAccessService.getClusterAccessReviews();
+  state.reviews = await clusterAccessService.getClusterAccessReviews();
   state.refreshing = false;
 }
 
-const filteredReviews = computed(() => {
-  if (state.search === "") {
-    return state.reviews;
-  }
-    console.log('foo');
-    return state.reviews;
-  // return state.reviews.filter((bg) => bg.to?.includes(state.search) || bg.from?.includes(state.search));
-});
 
 async function onAccept(car: ClusterAccessReview) {
-  console.log("ON Accept")
-  clusterAccessService.approveReview(car);
+  await clusterAccessService.approveReview(car);
   state.reviews = await clusterAccessService.getClusterAccessReviews();
 }
 
 async function onReject(car: ClusterAccessReview) {
-  clusterAccessService.rejectReview(car);
+  await clusterAccessService.rejectReview(car);
   state.reviews = await clusterAccessService.getClusterAccessReviews();
 }
 
@@ -75,8 +66,8 @@ async function onReject(car: ClusterAccessReview) {
       </div>
       <div class="cluster-access-list">
         <ClusterAccessCard
-          v-for="rev in filteredReviews"
-          :key="rev.id"
+          v-for="rev in state.reviews"
+          :key="rev.uid"
           class="card"
           :review="rev"
           :time="time"

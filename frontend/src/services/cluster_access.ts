@@ -28,11 +28,11 @@ export default class ClusterAccessService {
   }
 
   public async approveReview(review: ClusterAccessReview) {
-    return await this.client.post("/accept/"+review.id)
+    return await this.client.post("/accept/"+review.name)
   }
 
   public async rejectReview(review: ClusterAccessReview) {
-    return await this.client.post("/reject/"+review.id)
+    return await this.client.post("/reject/"+review.name)
   }
 
   // public async getBreakglasses(): Promise<Breakglass[]> {

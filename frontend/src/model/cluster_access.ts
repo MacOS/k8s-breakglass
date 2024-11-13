@@ -1,5 +1,11 @@
 export interface ClusterAccessReview {
-  spec: ClusterAccessReviewSpec;
+  name: string;
+  uid: string
+  cluster: string;
+  subject: ClusterAccessReviewSubject;
+  duration: string;
+  until: string;
+  application_status: string;
 }
 
 interface ClusterAccessReviewSubject {
@@ -7,12 +13,4 @@ interface ClusterAccessReviewSubject {
   namespace: string;
   resource: string;
   verb: string;
-}
-
-interface ClusterAccessReviewSpec{
-  cluster: string;
-  subject: ClusterAccessReviewSubject;
-  duration: string;
-  until: string;
-  application_status: string;
 }
