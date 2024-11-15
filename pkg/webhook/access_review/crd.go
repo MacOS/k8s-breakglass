@@ -10,7 +10,6 @@ import (
 	"github.com/pkg/errors"
 	"gitlab.devops.telekom.de/schiff/engine/go-breakglass.git/pkg/webhook/access_review/api/v1alpha1"
 	telekomv1alpha1 "gitlab.devops.telekom.de/schiff/engine/go-breakglass.git/pkg/webhook/access_review/api/v1alpha1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -88,7 +87,7 @@ func (c CRDManager) GetReviewByName(name string) (v1alpha1.ClusterAccessReview, 
 	}
 
 	if len(reviews) == 0 {
-		return v1alpha1.ClusterAccessReview{}, fmt.Errorf("failed to get reviews by uid listing: not found")
+		return v1alpha1.ClusterAccessReview{}, fmt.Errorf("failed to get reviews by name not found: %q", name)
 	}
 
 	return reviews[0], nil
@@ -116,9 +115,13 @@ func (c CRDManager) GetClusterAccessReviewsByUID(uid types.UID) (v1alpha1.Cluste
 func (c CRDManager) DeleteReviewByName(name string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), cliTimeout)
 	defer cancel()
+	car, err := c.GetReviewByName(name)
+	if err != nil {
+		return errors.Wrap(err, "failed to get review for deletion")
+	}
 	c.writeMutex.Lock()
 	defer c.writeMutex.Unlock()
-	if err := c.Delete(ctx, &v1alpha1.ClusterAccessReview{ObjectMeta: metav1.ObjectMeta{Name: name}}); err != nil {
+	if err := c.Delete(ctx, &car); err != nil {
 		return errors.Wrap(err, "failed to delete cluster access review")
 	}
 
@@ -165,7 +168,6 @@ func (c CRDManager) UpdateReviewStatusByUID(uid types.UID, status v1alpha1.Acces
 	if err != nil {
 		return fmt.Errorf(": %w", err)
 	}
-	fmt.Println(r, err)
 
 	r.Spec.Status = status
 

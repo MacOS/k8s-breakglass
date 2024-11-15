@@ -2,7 +2,6 @@ package webhook
 
 import (
 	"encoding/json"
-	"fmt"
 	"log"
 	"net/http"
 	"time"
@@ -53,7 +52,6 @@ func (wc *WebhookController) handleAuthorize(c *gin.Context) {
 
 	sar := authorization.SubjectAccessReview{}
 	err := json.NewDecoder(c.Request.Body).Decode(&sar)
-	fmt.Println(cluster)
 	if err != nil {
 		log.Println("error while decoding body:", err)
 		c.Status(http.StatusUnprocessableEntity)
@@ -88,7 +86,11 @@ func (wc *WebhookController) handleAuthorize(c *gin.Context) {
 			switch review.Spec.Status {
 			case v1alpha1.StatusAccepted:
 				allowed = true
-				if err := wc.manager.DeleteReviewByName(car.GetName()); err != nil {
+				// TODO: Do actually we want to delete such review?
+				// This will give access for only very short amount of time (by default it is 5minutes)
+				// https://kubernetes.io/docs/reference/config-api/apiserver-config.v1beta1/
+				// Probably we want to simply extend time on update.
+				if err := wc.manager.DeleteReviewByName(review.GetName()); err != nil {
 					log.Printf("Error deleting access review from db: %v", err)
 					c.JSON(http.StatusInternalServerError, "Failed to process review request")
 				}
