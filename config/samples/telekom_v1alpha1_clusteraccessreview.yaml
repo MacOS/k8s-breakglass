@@ -6,16 +6,11 @@ metadata:
     app.kubernetes.io/managed-by: kustomize
   name: clusteraccessreview-sample
 spec:
-  application_status: Pending
+  application_status: pending
   cluster: kind
-  duration: "10s"
-  id: 1
-  until: '2017-07-21T17:32:28Z'
+  duration: "10h"
+  until: '2024-11-19T17:39:28+01:00'
   subject:
-    namespace: default
     resource: services
     username: foobar
     verb: create
-
-
-

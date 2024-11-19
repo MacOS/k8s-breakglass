@@ -145,6 +145,7 @@ func (wc WebhookController) GetSubjectReviews(
 }
 
 func (wc WebhookController) cleanupOldReviewRequests() {
+	cleanupRefreshTime := 1 * time.Minute
 	cleanup := func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
@@ -157,7 +158,7 @@ func (wc WebhookController) cleanupOldReviewRequests() {
 		wc.log.Info("Running cleanup task")
 		cleanup()
 		wc.log.Info("Finished cleanup task")
-		time.Sleep(defaultReviewRequestTimeout)
+		time.Sleep(cleanupRefreshTime)
 	}
 }
 
