@@ -40,7 +40,7 @@ type ClusterAccessReviewResponse struct {
 }
 
 func (wc ClusterAccessReviewController) handleGetReviews(c *gin.Context) {
-	reviews, err := wc.manager.GetReviews()
+	reviews, err := wc.manager.GetReviews(c.Request.Context())
 	if err != nil {
 		log.Printf("Error getting access reviews %v", err)
 		c.JSON(http.StatusInternalServerError, "Failed to extract review information")
@@ -70,7 +70,7 @@ func (wc ClusterAccessReviewController) handleReject(c *gin.Context) {
 
 func (wc ClusterAccessReviewController) handleStatusChange(c *gin.Context, newStatus v1alpha1.AccessReviewApplicationStatus) {
 	name := c.Param("name")
-	err := wc.manager.UpdateReviewStatusByName(name, newStatus)
+	err := wc.manager.UpdateReviewStatusByName(c.Request.Context(), name, newStatus)
 	// err := wc.manager.UpdateReviewStatusByUID(types.UID(name), newStatus)
 	if err != nil {
 		log.Printf("Error getting access review with id %q %v", name, err)

@@ -1,6 +1,7 @@
 package webhook
 
 import (
+	"context"
 	"encoding/json"
 	"log"
 	"net/http"
@@ -15,7 +16,7 @@ import (
 	"k8s.io/kubernetes/pkg/apis/authorization"
 )
 
-const defaultReviewRequestTimeout = 5 * time.Minute
+const defaultReviewRequestTimeout = 30 * time.Second
 
 type SubjectAccessReviewResponseStatus struct {
 	Allowed bool   `json:"allowed"`
@@ -49,6 +50,7 @@ func (b WebhookController) Handlers() []gin.HandlerFunc {
 
 func (wc *WebhookController) handleAuthorize(c *gin.Context) {
 	cluster := c.Param("cluster_name")
+	ctx := c.Request.Context()
 
 	sar := authorization.SubjectAccessReview{}
 	err := json.NewDecoder(c.Request.Body).Decode(&sar)
@@ -67,7 +69,7 @@ func (wc *WebhookController) handleAuthorize(c *gin.Context) {
 
 	allowed := false
 	reason := ""
-	reviews, err := wc.GetSubjectReviews(cluster, sar.Spec)
+	reviews, err := wc.GetSubjectReviews(ctx, cluster, sar.Spec)
 	if err != nil {
 		log.Printf("Error getting access review from database: %v", err)
 		c.JSON(http.StatusInternalServerError, "Failed to extract review information")
@@ -76,7 +78,7 @@ func (wc *WebhookController) handleAuthorize(c *gin.Context) {
 
 	if len(reviews) == 0 {
 		reason = "Access added to be reviewed by administrator."
-		if err := wc.manager.AddAccessReview(car); err != nil {
+		if err := wc.manager.AddAccessReview(ctx, car); err != nil {
 			log.Printf("Error adding access review to database: %v", err)
 			c.JSON(http.StatusInternalServerError, "Failed to process review request")
 			return
@@ -90,7 +92,7 @@ func (wc *WebhookController) handleAuthorize(c *gin.Context) {
 				// This will give access for only very short amount of time (by default it is 5minutes)
 				// https://kubernetes.io/docs/reference/config-api/apiserver-config.v1beta1/
 				// Probably we want to simply extend time on update.
-				if err := wc.manager.DeleteReviewByName(review.GetName()); err != nil {
+				if err := wc.manager.DeleteReviewByName(ctx, review.GetName()); err != nil {
 					log.Printf("Error deleting access review from db: %v", err)
 					c.JSON(http.StatusInternalServerError, "Failed to process review request")
 				}
@@ -102,7 +104,7 @@ func (wc *WebhookController) handleAuthorize(c *gin.Context) {
 				reason = "Access already once rejected. New request will be created."
 				// TODO: Do we want some logic to only allow that after some timeout
 				// especially if rejected more than once
-				if err := wc.manager.UpdateReviewStatusByName(review.GetName(), v1alpha1.StatusPending); err != nil {
+				if err := wc.manager.UpdateReviewStatusByName(ctx, review.GetName(), v1alpha1.StatusPending); err != nil {
 					log.Printf("Error updating access review status: %v", err)
 					c.JSON(http.StatusInternalServerError, "Failed to process review request")
 				}
@@ -123,10 +125,12 @@ func (wc *WebhookController) handleAuthorize(c *gin.Context) {
 }
 
 func (wc WebhookController) GetSubjectReviews(
-	cluster string, s authorization.SubjectAccessReviewSpec,
+	ctx context.Context,
+	cluster string,
+	s authorization.SubjectAccessReviewSpec,
 ) ([]v1alpha1.ClusterAccessReview, error) {
 	// TODO: user can be anonymous then we probably want to return empty
-	reviews, err := wc.manager.GetClusterUserReviews(cluster, s.User)
+	reviews, err := wc.manager.GetClusterUserReviews(ctx, cluster, s.User)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed get cluster %q subject reviews for user %q", cluster, s.User)
 	}
@@ -141,11 +145,17 @@ func (wc WebhookController) GetSubjectReviews(
 }
 
 func (wc WebhookController) cleanupOldReviewRequests() {
-	for {
-		wc.log.Info("Running cleanup task")
-		if err := wc.manager.DeleteReviewsOlderThan(time.Now()); err != nil {
+	cleanup := func() {
+		ctx, cancel := context.WithTimeout(context.Background(), defaultReviewRequestTimeout)
+		defer cancel()
+		if err := wc.manager.DeleteReviewsOlderThan(ctx, time.Now()); err != nil {
 			wc.log.Errorf("Failed to delete old requests %v", err)
 		}
+	}
+
+	for {
+		wc.log.Info("Running cleanup task")
+		cleanup()
 		wc.log.Info("Finished cleanup task")
 		time.Sleep(defaultReviewRequestTimeout)
 	}
