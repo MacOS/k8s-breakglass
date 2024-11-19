@@ -16,7 +16,7 @@ import (
 	"k8s.io/kubernetes/pkg/apis/authorization"
 )
 
-const defaultReviewRequestTimeout = 30 * time.Second
+const defaultReviewRequestTimeout = 5 * time.Minute
 
 type SubjectAccessReviewResponseStatus struct {
 	Allowed bool   `json:"allowed"`
@@ -146,7 +146,7 @@ func (wc WebhookController) GetSubjectReviews(
 
 func (wc WebhookController) cleanupOldReviewRequests() {
 	cleanup := func() {
-		ctx, cancel := context.WithTimeout(context.Background(), defaultReviewRequestTimeout)
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		if err := wc.manager.DeleteReviewsOlderThan(ctx, time.Now()); err != nil {
 			wc.log.Errorf("Failed to delete old requests %v", err)
