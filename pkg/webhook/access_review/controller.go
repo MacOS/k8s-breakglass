@@ -6,7 +6,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"gitlab.devops.telekom.de/schiff/engine/go-breakglass.git/pkg/config"
-	"gitlab.devops.telekom.de/schiff/engine/go-breakglass.git/pkg/webhook/access_review/api/v1alpha1"
 	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/types"
 )
@@ -34,43 +33,44 @@ func (b ClusterAccessReviewController) Handlers() []gin.HandlerFunc {
 }
 
 type ClusterAccessReviewResponse struct {
-	v1alpha1.ClusterAccessReviewSpec
+	// v1alpha1.ClusterAccessReviewSpec
 	Name string    `json:"name,omitempty"`
 	UID  types.UID `json:"uid,omitempty"`
 }
 
 func (wc ClusterAccessReviewController) handleGetReviews(c *gin.Context) {
-	reviews, err := wc.manager.GetReviews(c.Request.Context())
-	if err != nil {
-		log.Printf("Error getting access reviews %v", err)
-		c.JSON(http.StatusInternalServerError, "Failed to extract review information")
-		return
-	}
+	// reviews, err := wc.manager.GetReviews(c.Request.Context())
+	// if err != nil {
+	// 	log.Printf("Error getting access reviews %v", err)
+	// 	c.JSON(http.StatusInternalServerError, "Failed to extract review information")
+	// 	return
+	// }
+	//
+	// outReviews := []ClusterAccessReviewResponse{}
+	// for _, review := range reviews {
+	// 	resp := ClusterAccessReviewResponse{
+	// 		ClusterAccessReviewSpec: review.Spec,
+	// 		Name:                    review.Name,
+	// 		UID:                     review.UID,
+	// 	}
+	// 	outReviews = append(outReviews, resp)
+	// }
 
-	outReviews := []ClusterAccessReviewResponse{}
-	for _, review := range reviews {
-		resp := ClusterAccessReviewResponse{
-			ClusterAccessReviewSpec: review.Spec,
-			Name:                    review.Name,
-			UID:                     review.UID,
-		}
-		outReviews = append(outReviews, resp)
-	}
-
-	c.JSON(http.StatusOK, outReviews)
+	// c.JSON(http.StatusOK, outReviews)
 }
 
 func (wc ClusterAccessReviewController) handleAccept(c *gin.Context) {
-	wc.handleStatusChange(c, v1alpha1.StatusAccepted)
+	// wc.handleStatusChange(c, v1alpha1.StatusAccepted)
 }
 
 func (wc ClusterAccessReviewController) handleReject(c *gin.Context) {
-	wc.handleStatusChange(c, v1alpha1.StatusRejected)
+	// wc.handleStatusChange(c, v1alpha1.StatusRejected)
 }
 
-func (wc ClusterAccessReviewController) handleStatusChange(c *gin.Context, newStatus v1alpha1.AccessReviewApplicationStatus) {
+func (wc ClusterAccessReviewController) handleStatusChange(c *gin.Context) {
 	name := c.Param("name")
-	err := wc.manager.UpdateReviewStatusByName(c.Request.Context(), name, newStatus)
+	// err := wc.manager.UpdateReviewStatusByName(c.Request.Context(), name, newStatus)
+	var err error
 	// err := wc.manager.UpdateReviewStatusByUID(types.UID(name), newStatus)
 	if err != nil {
 		log.Printf("Error getting access review with id %q %v", name, err)

@@ -9,10 +9,8 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/pkg/errors"
 	"gitlab.devops.telekom.de/schiff/engine/go-breakglass.git/pkg/config"
 	accessreview "gitlab.devops.telekom.de/schiff/engine/go-breakglass.git/pkg/webhook/access_review"
-	"gitlab.devops.telekom.de/schiff/engine/go-breakglass.git/pkg/webhook/access_review/api/v1alpha1"
 	"go.uber.org/zap"
 	"k8s.io/kubernetes/pkg/apis/authorization"
 )
@@ -103,47 +101,28 @@ func (wc *WebhookController) getUserGroupsForCluster(ctx context.Context,
 	clustername string,
 ) ([]string, error) {
 	groups := []string{"breakglass-service-create"}
+	// wc.manager.Get
 
 	return groups, nil
 }
 
-func (wc WebhookController) GetSubjectReviews(
-	ctx context.Context,
-	cluster string,
-	s authorization.SubjectAccessReviewSpec,
-) ([]v1alpha1.ClusterAccessReview, error) {
-	// TODO: user can be anonymous then we probably want to return empty
-	reviews, err := wc.manager.GetClusterUserReviews(ctx, cluster, s.User)
-	if err != nil {
-		return nil, errors.Wrapf(err, "failed get cluster %q subject reviews for user %q", cluster, s.User)
-	}
-
-	outReviews := []v1alpha1.ClusterAccessReview{}
-	for _, review := range reviews {
-		if IsValid(review) && AreSubjectEqual(review.Spec.Subject, s) {
-			outReviews = append(outReviews, review)
-		}
-	}
-	return outReviews, nil
-}
-
-func (wc WebhookController) cleanupOldReviewRequests() {
-	cleanupRefreshTime := 1 * time.Minute
-	cleanup := func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		if err := wc.manager.DeleteReviewsOlderThan(ctx, time.Now()); err != nil {
-			wc.log.Errorf("Failed to delete old requests %v", err)
-		}
-	}
-
-	for {
-		wc.log.Info("Running cleanup task")
-		cleanup()
-		wc.log.Info("Finished cleanup task")
-		time.Sleep(cleanupRefreshTime)
-	}
-}
+// func (wc WebhookController) cleanupOldReviewRequests() {
+// 	cleanupRefreshTime := 1 * time.Minute
+// 	cleanup := func() {
+// 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+// 		defer cancel()
+// 		if err := wc.manager.DeleteReviewsOlderThan(ctx, time.Now()); err != nil {
+// 			wc.log.Errorf("Failed to delete old requests %v", err)
+// 		}
+// 	}
+//
+// 	for {
+// 		wc.log.Info("Running cleanup task")
+// 		cleanup()
+// 		wc.log.Info("Finished cleanup task")
+// 		time.Sleep(cleanupRefreshTime)
+// 	}
+// }
 
 func NewWebhookController(log *zap.SugaredLogger, cfg config.Config, manager *accessreview.CRDManager) *WebhookController {
 	controller := &WebhookController{
@@ -152,19 +131,7 @@ func NewWebhookController(log *zap.SugaredLogger, cfg config.Config, manager *ac
 		manager: manager,
 	}
 
-	go controller.cleanupOldReviewRequests()
+	// go controller.cleanupOldReviewRequests()
 
 	return controller
-}
-
-func IsValid(car v1alpha1.ClusterAccessReview) bool {
-	timeNow := time.Now()
-	return timeNow.Before(car.Spec.Until.Time)
-}
-
-func AreSubjectEqual(carSubj v1alpha1.ClusterAccessReviewSubject, authSubj authorization.SubjectAccessReviewSpec) bool {
-	return carSubj.Username == authSubj.User &&
-		carSubj.Namespace == authSubj.ResourceAttributes.Namespace &&
-		carSubj.Resource == authSubj.ResourceAttributes.Resource &&
-		carSubj.Verb == authSubj.ResourceAttributes.Verb
 }

@@ -3,16 +3,13 @@ package accessreview
 import (
 	"context"
 	"fmt"
-	"strings"
 	"sync"
-	"time"
 
 	"github.com/pkg/errors"
 	"gitlab.devops.telekom.de/schiff/engine/go-breakglass.git/pkg/webhook/access_review/api/v1alpha1"
 	telekomv1alpha1 "gitlab.devops.telekom.de/schiff/engine/go-breakglass.git/pkg/webhook/access_review/api/v1alpha1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -48,148 +45,178 @@ func NewCRDManager() (CRDManager, error) {
 	return CRDManager{c, new(sync.Mutex)}, nil
 }
 
-func (c CRDManager) AddAccessReview(ctx context.Context, car v1alpha1.ClusterAccessReview) error {
-	if car.Spec.Cluster == "" || car.Spec.Subject.Username == "" {
-		return errors.New("ClusterAccessReview muse provide spec.cluster name and spec.subject.username")
-	}
-	if car.Name == "" {
-		car.GenerateName = fmt.Sprintf("%s-%s-", car.Spec.Cluster, car.Spec.Subject.Username)
-	}
-	c.writeMutex.Lock()
-	defer c.writeMutex.Unlock()
-	if err := c.Create(ctx, &car); err != nil {
-		return errors.Wrap(err, "failed to create new cluster access review")
+// Get all stored GetClusterGroupAccess
+func (c CRDManager) GetAllClusterGroupAccess(ctx context.Context) ([]telekomv1alpha1.ClusterGroupAccess, error) {
+	cgal := v1alpha1.ClusterGroupAccessList{}
+	if err := c.List(ctx, &cgal); err != nil {
+		return nil, errors.Wrap(err, "failed to get ClusterGroupAccessList")
 	}
 
-	return nil
+	return cgal.Items, nil
 }
 
-func (c CRDManager) GetReviews(ctx context.Context) ([]v1alpha1.ClusterAccessReview, error) {
-	carls := v1alpha1.ClusterAccessReviewList{}
-	if err := c.List(ctx, &carls); err != nil {
-		return nil, errors.Wrap(err, "failed to get clusterAccessReviews")
-	}
+// Get GetClusterGroupAccess by cluster name
+func (c CRDManager) GetClusterGroupAccess(ctx context.Context, cluster string) (cga telekomv1alpha1.ClusterGroupAccess, err error) {
+	cgal := v1alpha1.ClusterGroupAccessList{}
 
-	return carls.Items, nil
-}
-
-func (c CRDManager) GetReviewByName(ctx context.Context, name string) (v1alpha1.ClusterAccessReview, error) {
-	selector := fmt.Sprintf("metadata.name=%s", name)
-	reviews, err := c.getClusterUserReviewsByFieldSelector(ctx, selector)
+	fs, err := fields.ParseSelector(fmt.Sprintf("spec.cluster=%s", cluster))
 	if err != nil {
-		return v1alpha1.ClusterAccessReview{}, fmt.Errorf("failed to get reviews by name: %w", err)
+		return cga, fmt.Errorf("failed to create field selector: %w", err)
 	}
 
-	if len(reviews) == 0 {
-		return v1alpha1.ClusterAccessReview{}, fmt.Errorf("failed to get reviews by name not found: %q", name)
+	if err := c.List(ctx, &cgal, &client.ListOptions{FieldSelector: fs}); err != nil {
+		return cga, errors.Wrapf(err, "failed to list ClusterGroupAccessList")
 	}
 
-	return reviews[0], nil
+	if len(cgal.Items) == 0 {
+		return cga, fmt.Errorf("failed to get ClusterGroupAcccess by name not found: %q", cluster)
+	}
+
+	return cgal.Items[0], nil
 }
 
-func (c CRDManager) GetClusterUserReviews(ctx context.Context, cluster, user string) (car []v1alpha1.ClusterAccessReview, err error) {
-	selector := fmt.Sprintf("spec.subject.username=%s,spec.cluster=%s", user, cluster)
-	return c.getClusterUserReviewsByFieldSelector(ctx, selector)
-}
+// func (c CRDManager) AddAccessReview(ctx context.Context, car v1alpha1.ClusterAccessReview) error {
+// 	if car.Spec.Cluster == "" || car.Spec.Subject.Username == "" {
+// 		return errors.New("ClusterAccessReview muse provide spec.cluster name and spec.subject.username")
+// 	}
+// 	if car.Name == "" {
+// 		car.GenerateName = fmt.Sprintf("%s-%s-", car.Spec.Cluster, car.Spec.Subject.Username)
+// 	}
+// 	c.writeMutex.Lock()
+// 	defer c.writeMutex.Unlock()
+// 	if err := c.Create(ctx, &car); err != nil {
+// 		return errors.Wrap(err, "failed to create new cluster access review")
+// 	}
+//
+// 	return nil
+// }
 
-func (c CRDManager) GetClusterAccessReviewsByUID(ctx context.Context, uid types.UID) (v1alpha1.ClusterAccessReview, error) {
-	allReviews, err := c.GetReviews(ctx)
-	if err != nil {
-		return v1alpha1.ClusterAccessReview{}, fmt.Errorf("failed to get reviews by uid listing: %w", err)
-	}
-	for _, ar := range allReviews {
-		if ar.UID == uid {
-			return ar, nil
-		}
-	}
+// func (c CRDManager) GetReviews(ctx context.Context) ([]v1alpha1.ClusterAccessReview, error) {
+// 	carls := v1alpha1.ClusterAccessReviewList{}
+// 	if err := c.List(ctx, &carls); err != nil {
+// 		return nil, errors.Wrap(err, "failed to get clusterAccessReviews")
+// 	}
+//
+// 	return carls.Items, nil
+// }
 
-	return v1alpha1.ClusterAccessReview{}, ErrAccessNotFound
-}
+// func (c CRDManager) GetReviewByName(ctx context.Context, name string) (v1alpha1.ClusterAccessReview, error) {
+// 	selector := fmt.Sprintf("metadata.name=%s", name)
+// 	reviews, err := c.getClusterUserReviewsByFieldSelector(ctx, selector)
+// 	if err != nil {
+// 		return v1alpha1.ClusterAccessReview{}, fmt.Errorf("failed to get reviews by name: %w", err)
+// 	}
+//
+// 	if len(reviews) == 0 {
+// 		return v1alpha1.ClusterAccessReview{}, fmt.Errorf("failed to get reviews by name not found: %q", name)
+// 	}
+//
+// 	return reviews[0], nil
+// }
 
-func (c CRDManager) DeleteReviewByName(ctx context.Context, name string) error {
-	car, err := c.GetReviewByName(ctx, name)
-	if err != nil {
-		return errors.Wrap(err, "failed to get review for deletion")
-	}
-	c.writeMutex.Lock()
-	defer c.writeMutex.Unlock()
-	if err := c.Delete(ctx, &car); err != nil {
-		return errors.Wrap(err, "failed to delete cluster access review")
-	}
-
-	return nil
-}
-
-func (c CRDManager) getClusterUserReviewsByFieldSelector(ctx context.Context, selector string) ([]v1alpha1.ClusterAccessReview, error) {
-	carls := v1alpha1.ClusterAccessReviewList{}
-	fs, err := fields.ParseSelector(selector)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create field selector: %w", err)
-	}
-
-	if err := c.List(ctx, &carls, &client.ListOptions{FieldSelector: fs}); err != nil {
-		return nil, errors.Wrapf(err, "failed to list reviews with selector: %q", selector)
-	}
-
-	return carls.Items, nil
-}
-
-func (c CRDManager) UpdateReviewStatusByName(ctx context.Context, resourceName string, status v1alpha1.AccessReviewApplicationStatus) error {
-	st, err := c.GetReviewByName(ctx, resourceName)
-	if err != nil {
-		return fmt.Errorf("failed to get resource to update by name: %w", err)
-	}
-	st.Spec.Status = status
-
-	c.writeMutex.Lock()
-	defer c.writeMutex.Unlock()
-	if err := c.Update(ctx, &st); err != nil {
-		return errors.Wrapf(err, "failed to update review with name %q", resourceName)
-	}
-	return nil
-}
-
-func (c CRDManager) UpdateReviewStatusByUID(ctx context.Context, uid types.UID, status v1alpha1.AccessReviewApplicationStatus) error {
-	r, err := c.GetClusterAccessReviewsByUID(ctx, uid)
-	if err != nil {
-		return fmt.Errorf(": %w", err)
-	}
-
-	r.Spec.Status = status
-
-	c.writeMutex.Lock()
-	defer c.writeMutex.Unlock()
-	if err := c.Update(ctx, &r); err != nil {
-		return errors.Wrapf(err, "failed to update review with name %q", r.Name)
-	}
-	return nil
-}
-
-func (c CRDManager) DeleteReviewsOlderThan(ctx context.Context, t time.Time) error {
-	currentReviews, err := c.GetReviews(ctx)
-	if err != nil {
-		return errors.Wrap(err, "failed to list reviews for older deletion")
-	}
-	doNotDelete := []string{}
-	selectorOp := "metadata.name!="
-	for _, review := range currentReviews {
-		if t.Before(review.Spec.Until.Time) {
-			doNotDelete = append(doNotDelete, selectorOp+review.Name)
-		}
-	}
-	selectorString := strings.Join(doNotDelete, ",")
-	fs, err := fields.ParseSelector(selectorString)
-	if err != nil {
-		return fmt.Errorf("delete failed to create field selector: %w", err)
-	}
-	c.writeMutex.Lock()
-	defer c.writeMutex.Unlock()
-	if err := c.DeleteAllOf(ctx, &v1alpha1.ClusterAccessReview{},
-		&client.DeleteAllOfOptions{
-			ListOptions: client.ListOptions{FieldSelector: fs},
-		}); err != nil {
-		return errors.Wrapf(err, "failed to delete all of reviews with selector %s", selectorString)
-	}
-
-	return nil
-}
+// func (c CRDManager) GetClusterUserReviews(ctx context.Context, cluster, user string) (car []v1alpha1.ClusterAccessReview, err error) {
+// 	selector := fmt.Sprintf("spec.subject.username=%s,spec.cluster=%s", user, cluster)
+// 	return c.getClusterUserReviewsByFieldSelector(ctx, selector)
+// }
+//
+// func (c CRDManager) GetClusterAccessReviewsByUID(ctx context.Context, uid types.UID) (v1alpha1.ClusterAccessReview, error) {
+// 	allReviews, err := c.GetReviews(ctx)
+// 	if err != nil {
+// 		return v1alpha1.ClusterAccessReview{}, fmt.Errorf("failed to get reviews by uid listing: %w", err)
+// 	}
+// 	for _, ar := range allReviews {
+// 		if ar.UID == uid {
+// 			return ar, nil
+// 		}
+// 	}
+//
+// 	return v1alpha1.ClusterAccessReview{}, ErrAccessNotFound
+// }
+//
+// func (c CRDManager) DeleteReviewByName(ctx context.Context, name string) error {
+// 	car, err := c.GetReviewByName(ctx, name)
+// 	if err != nil {
+// 		return errors.Wrap(err, "failed to get review for deletion")
+// 	}
+// 	c.writeMutex.Lock()
+// 	defer c.writeMutex.Unlock()
+// 	if err := c.Delete(ctx, &car); err != nil {
+// 		return errors.Wrap(err, "failed to delete cluster access review")
+// 	}
+//
+// 	return nil
+// }
+//
+// func (c CRDManager) getClusterUserReviewsByFieldSelector(ctx context.Context, selector string) ([]v1alpha1.ClusterAccessReview, error) {
+// 	carls := v1alpha1.ClusterAccessReviewList{}
+// 	fs, err := fields.ParseSelector(selector)
+// 	if err != nil {
+// 		return nil, fmt.Errorf("failed to create field selector: %w", err)
+// 	}
+//
+// 	if err := c.List(ctx, &carls, &client.ListOptions{FieldSelector: fs}); err != nil {
+// 		return nil, errors.Wrapf(err, "failed to list reviews with selector: %q", selector)
+// 	}
+//
+// 	return carls.Items, nil
+// }
+//
+// func (c CRDManager) UpdateReviewStatusByName(ctx context.Context, resourceName string, status v1alpha1.AccessReviewApplicationStatus) error {
+// 	st, err := c.GetReviewByName(ctx, resourceName)
+// 	if err != nil {
+// 		return fmt.Errorf("failed to get resource to update by name: %w", err)
+// 	}
+// 	st.Spec.Status = status
+//
+// 	c.writeMutex.Lock()
+// 	defer c.writeMutex.Unlock()
+// 	if err := c.Update(ctx, &st); err != nil {
+// 		return errors.Wrapf(err, "failed to update review with name %q", resourceName)
+// 	}
+// 	return nil
+// }
+//
+// func (c CRDManager) UpdateReviewStatusByUID(ctx context.Context, uid types.UID, status v1alpha1.AccessReviewApplicationStatus) error {
+// 	r, err := c.GetClusterAccessReviewsByUID(ctx, uid)
+// 	if err != nil {
+// 		return fmt.Errorf(": %w", err)
+// 	}
+//
+// 	r.Spec.Status = status
+//
+// 	c.writeMutex.Lock()
+// 	defer c.writeMutex.Unlock()
+// 	if err := c.Update(ctx, &r); err != nil {
+// 		return errors.Wrapf(err, "failed to update review with name %q", r.Name)
+// 	}
+// 	return nil
+// }
+//
+// func (c CRDManager) DeleteReviewsOlderThan(ctx context.Context, t time.Time) error {
+// 	currentReviews, err := c.GetReviews(ctx)
+// 	if err != nil {
+// 		return errors.Wrap(err, "failed to list reviews for older deletion")
+// 	}
+// 	doNotDelete := []string{}
+// 	selectorOp := "metadata.name!="
+// 	for _, review := range currentReviews {
+// 		if t.Before(review.Spec.Until.Time) {
+// 			doNotDelete = append(doNotDelete, selectorOp+review.Name)
+// 		}
+// 	}
+// 	selectorString := strings.Join(doNotDelete, ",")
+// 	fs, err := fields.ParseSelector(selectorString)
+// 	if err != nil {
+// 		return fmt.Errorf("delete failed to create field selector: %w", err)
+// 	}
+// 	c.writeMutex.Lock()
+// 	defer c.writeMutex.Unlock()
+// 	if err := c.DeleteAllOf(ctx, &v1alpha1.ClusterAccessReview{},
+// 		&client.DeleteAllOfOptions{
+// 			ListOptions: client.ListOptions{FieldSelector: fs},
+// 		}); err != nil {
+// 		return errors.Wrapf(err, "failed to delete all of reviews with selector %s", selectorString)
+// 	}
+//
+// 	return nil
+// }

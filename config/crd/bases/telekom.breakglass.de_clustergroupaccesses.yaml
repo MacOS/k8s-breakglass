@@ -4,20 +4,20 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.16.4
-  name: clusteraccessreviews.telekom.breakglass.de
+  name: clustergroupaccesses.telekom.breakglass.de
 spec:
   group: telekom.breakglass.de
   names:
-    kind: ClusterAccessReview
-    listKind: ClusterAccessReviewList
-    plural: clusteraccessreviews
-    singular: clusteraccessreview
+    kind: ClusterGroupAccess
+    listKind: ClusterGroupAccessList
+    plural: clustergroupaccesses
+    singular: clustergroupaccess
   scope: Cluster
   versions:
   - name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: ClusterAccessReview is the Schema for the clusteraccessreviews
+        description: ClusterGroupAccess is the Schema for the clusteraccessreviews
           API.
         properties:
           apiVersion:
@@ -40,51 +40,58 @@ spec:
           spec:
             description: ClusterAccessReviewSpec defines the desired state of ClusterAccessReview.
             properties:
-              application_status:
-                enum:
-                - pending
-                - accepted
-                - rejected
-                type: string
               cluster:
                 type: string
-              duration:
-                type: string
-              subject:
-                properties:
-                  namespace:
-                    type: string
-                  resource:
-                    type: string
-                  username:
-                    type: string
-                  verb:
-                    type: string
-                required:
-                - username
-                type: object
-              until:
-                format: date-time
-                type: string
+              requests:
+                items:
+                  properties:
+                    approvers:
+                      items:
+                        type: string
+                      type: array
+                    for_user:
+                      properties:
+                        groups:
+                          items:
+                            type: string
+                          type: array
+                        username:
+                          type: string
+                      required:
+                      - groups
+                      - username
+                      type: object
+                  required:
+                  - for_user
+                  type: object
+                type: array
+              users:
+                items:
+                  properties:
+                    groups:
+                      items:
+                        type: string
+                      type: array
+                    username:
+                      type: string
+                  required:
+                  - groups
+                  - username
+                  type: object
+                type: array
             required:
-            - application_status
             - cluster
-            - subject
+            - requests
+            - users
             type: object
           status:
-            description: ClusterAccessReviewStatus defines the observed state of ClusterAccessReview.
+            description: ClusterGroupAccessStatus defines the observed state of ClusterAccessReview.
             type: object
         required:
         - spec
         type: object
     selectableFields:
     - jsonPath: .spec.cluster
-    - jsonPath: .spec.application_status
-    - jsonPath: .spec.until
-    - jsonPath: .spec.subject.namespace
-    - jsonPath: .spec.subject.verb
-    - jsonPath: .spec.subject.resource
-    - jsonPath: .spec.subject.username
     served: true
     storage: true
     subresources:

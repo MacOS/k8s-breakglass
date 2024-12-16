@@ -1,0 +1,15 @@
+apiVersion: telekom.breakglass.de/v1alpha1
+kind: ClusterGroupAccess
+metadata:
+  labels:
+  name: clustergroupaccess-sample
+spec:
+  cluster: kind
+  users:
+  - username: tester
+    groups: [foo, bar]
+  requests:
+  - for_user: 
+      username: tester
+      groups: [another, other]
+    approvers: [bazko1@deutche.de, jakob@deutche.de, max@deutche.de]
