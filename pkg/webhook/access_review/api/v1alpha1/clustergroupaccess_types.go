@@ -30,6 +30,8 @@ type ClusterGroupAccessSpec struct {
 	Users []ClusterUserDefinition `json:"users,omitempty"`
 	// +required
 	Requests []GroupAccessRequest `json:"requests,omitempty"`
+
+	AvailableGroups []string `json:"available_groups,omitempty"`
 }
 
 type ClusterUserDefinition struct {

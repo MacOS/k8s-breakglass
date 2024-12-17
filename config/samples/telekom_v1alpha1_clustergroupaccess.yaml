@@ -2,12 +2,12 @@ apiVersion: telekom.breakglass.de/v1alpha1
 kind: ClusterGroupAccess
 metadata:
   labels:
-  name: clustergroupaccess-sample
+  name: kind-sample
 spec:
   cluster: kind
   users:
   - username: tester
-    groups: [foo, bar]
+    groups: [foo, bar, breakglass-service-create]
   requests:
   - for_user: 
       username: tester

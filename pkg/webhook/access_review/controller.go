@@ -23,6 +23,7 @@ func (ClusterAccessReviewController) BasePath() string {
 
 func (wc *ClusterAccessReviewController) Register(rg *gin.RouterGroup) error {
 	rg.GET("/reviews", wc.handleGetReviews)
+	rg.GET("/clusterGroupAccess", wc.handleGetClusterGroupAccess)
 	rg.POST("/accept/:name", wc.handleAccept)
 	rg.POST("/reject/:name", wc.handleReject)
 	return nil
@@ -36,6 +37,17 @@ type ClusterAccessReviewResponse struct {
 	// v1alpha1.ClusterAccessReviewSpec
 	Name string    `json:"name,omitempty"`
 	UID  types.UID `json:"uid,omitempty"`
+}
+
+func (wc ClusterAccessReviewController) handleGetClusterGroupAccess(c *gin.Context) {
+	accesses, err := wc.manager.GetAllClusterGroupAccess(c.Request.Context())
+	if err != nil {
+		log.Printf("Error getting access reviews %v", err)
+		c.JSON(http.StatusInternalServerError, "Failed to extract cluster group access information")
+		return
+	}
+
+	c.JSON(http.StatusOK, accesses)
 }
 
 func (wc ClusterAccessReviewController) handleGetReviews(c *gin.Context) {

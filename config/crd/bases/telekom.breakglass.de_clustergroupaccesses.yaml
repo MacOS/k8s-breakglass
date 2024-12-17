@@ -40,6 +40,10 @@ spec:
           spec:
             description: ClusterAccessReviewSpec defines the desired state of ClusterAccessReview.
             properties:
+              available_groups:
+                items:
+                  type: string
+                type: array
               cluster:
                 type: string
               requests:

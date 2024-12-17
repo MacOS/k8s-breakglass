@@ -90,7 +90,7 @@ func Load() (Config, error) {
 
 func (c *Config) Defaults() {
 	if c.ClusterAccess.FrontendPage == "" {
-		c.ClusterAccess.FrontendPage = "http://localhost:5173/"
+		c.ClusterAccess.FrontendPage = "http://localhost:5173"
 	}
 }
 

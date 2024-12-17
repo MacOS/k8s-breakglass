@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/pkg/errors"
 	"gitlab.devops.telekom.de/schiff/engine/go-breakglass.git/pkg/config"
 	accessreview "gitlab.devops.telekom.de/schiff/engine/go-breakglass.git/pkg/webhook/access_review"
 	"go.uber.org/zap"
@@ -79,10 +80,8 @@ func (wc *WebhookController) handleAuthorize(c *gin.Context) {
 	if can {
 		allowed = true
 	} else {
-		reason = fmt.Sprintf("Please request proper group assignment at https://%s/request?cluster=%s", wc.config.ClusterAccess.FrontendPage, cluster)
+		reason = fmt.Sprintf("please request proper group assignment at %s/request?cluster=%s", wc.config.ClusterAccess.FrontendPage, cluster)
 	}
-
-	// TODO: If not allowed deny and add group request link as a reason.
 
 	response := SubjectAccessReviewResponse{
 		ApiVersion: sar.APIVersion,
@@ -100,10 +99,18 @@ func (wc *WebhookController) getUserGroupsForCluster(ctx context.Context,
 	username string,
 	clustername string,
 ) ([]string, error) {
-	groups := []string{"breakglass-service-create"}
-	// wc.manager.Get
+	groupAccess, err := wc.manager.GetClusterGroupAccess(ctx, clustername)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to get ClusterGroupAccess")
+	}
 
-	return groups, nil
+	for _, user := range groupAccess.Spec.Users {
+		if user.Username == username {
+			return user.Groups, nil
+		}
+	}
+
+	return []string{}, nil
 }
 
 // func (wc WebhookController) cleanupOldReviewRequests() {

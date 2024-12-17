@@ -56,7 +56,9 @@ func (c CRDManager) GetAllClusterGroupAccess(ctx context.Context) ([]telekomv1al
 }
 
 // Get GetClusterGroupAccess by cluster name
-func (c CRDManager) GetClusterGroupAccess(ctx context.Context, cluster string) (cga telekomv1alpha1.ClusterGroupAccess, err error) {
+func (c CRDManager) GetClusterGroupAccess(ctx context.Context, cluster string) (cga telekomv1alpha1.ClusterGroupAccess,
+	err error,
+) {
 	cgal := v1alpha1.ClusterGroupAccessList{}
 
 	fs, err := fields.ParseSelector(fmt.Sprintf("spec.cluster=%s", cluster))
