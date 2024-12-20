@@ -46,35 +46,64 @@ func NewCRDManager() (CRDManager, error) {
 }
 
 // Get all stored GetClusterGroupAccess
-func (c CRDManager) GetAllClusterGroupAccess(ctx context.Context) ([]telekomv1alpha1.ClusterGroupAccess, error) {
-	cgal := v1alpha1.ClusterGroupAccessList{}
+func (c CRDManager) GetAllBreakglassSessions(ctx context.Context) ([]telekomv1alpha1.BreakglassSession, error) {
+	cgal := v1alpha1.BreakglassSessionList{}
 	if err := c.List(ctx, &cgal); err != nil {
-		return nil, errors.Wrap(err, "failed to get ClusterGroupAccessList")
+		return nil, errors.Wrap(err, "failed to get BreakglassSessionList")
 	}
 
 	return cgal.Items, nil
 }
 
-// Get GetClusterGroupAccess by cluster name
-func (c CRDManager) GetClusterGroupAccess(ctx context.Context, cluster string) (cga telekomv1alpha1.ClusterGroupAccess,
-	err error,
-) {
-	cgal := v1alpha1.ClusterGroupAccessList{}
+// Get GetClusterGroupAccess by cluster name.
+func (c CRDManager) GetClusterUserBreakglassSessions(ctx context.Context,
+	cluster string,
+	user string,
+) ([]telekomv1alpha1.BreakglassSession, error) {
+	selector := fmt.Sprintf("spec.cluster=%s,spec.username=%s",
+		cluster,
+		user)
+	return c.GetBreakglassSessionsWithSelector(ctx, selector)
+}
 
-	fs, err := fields.ParseSelector(fmt.Sprintf("spec.cluster=%s", cluster))
+// GetBreakglassSessions with custom field selector.
+func (c CRDManager) GetBreakglassSessionsWithSelector(ctx context.Context,
+	fieldSelector string,
+) ([]telekomv1alpha1.BreakglassSession, error) {
+	bsl := v1alpha1.BreakglassSessionList{}
+
+	fs, err := fields.ParseSelector(fieldSelector)
 	if err != nil {
-		return cga, fmt.Errorf("failed to create field selector: %w", err)
+		return nil, fmt.Errorf("failed to create field selector %q : %w", err)
 	}
 
-	if err := c.List(ctx, &cgal, &client.ListOptions{FieldSelector: fs}); err != nil {
-		return cga, errors.Wrapf(err, "failed to list ClusterGroupAccessList")
+	if err := c.List(ctx, &bsl, &client.ListOptions{FieldSelector: fs}); err != nil {
+		return nil, errors.Wrapf(err, "failed to list BreakglassSessionList")
 	}
 
-	if len(cgal.Items) == 0 {
-		return cga, fmt.Errorf("failed to get ClusterGroupAcccess by name not found: %q", cluster)
+	return bsl.Items, nil
+}
+
+// Add new breakglass session.
+func (c CRDManager) AddBreakglassSession(ctx context.Context, cga telekomv1alpha1.BreakglassSession) error {
+	c.writeMutex.Lock()
+	defer c.writeMutex.Unlock()
+	if err := c.Create(ctx, &cga); err != nil {
+		return errors.Wrap(err, "failed to create new ClusterGroupAccess")
 	}
 
-	return cgal.Items[0], nil
+	return nil
+}
+
+// Updare breakglass session.
+func (c CRDManager) UpdateBreakglassSession(ctx context.Context, cga telekomv1alpha1.BreakglassSession) error {
+	c.writeMutex.Lock()
+	defer c.writeMutex.Unlock()
+	if err := c.Update(ctx, &cga); err != nil {
+		return errors.Wrapf(err, "failed to create new ClusterGroupAccess")
+	}
+
+	return nil
 }
 
 // func (c CRDManager) AddAccessReview(ctx context.Context, car v1alpha1.ClusterAccessReview) error {

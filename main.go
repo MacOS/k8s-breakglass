@@ -51,7 +51,7 @@ func main() {
 
 	err = server.RegisterAll([]api.APIController{
 		breakglass.NewBreakglassController(log, config, auth.Middleware()),
-		accessreview.NewClusterAccessReviewController(log, config, &crdManager, auth.Middleware()),
+		accessreview.NewBreakglassSessionController(log, config, &crdManager, auth.Middleware()),
 		webhook.NewWebhookController(log, config, &crdManager),
 	})
 	if err != nil {

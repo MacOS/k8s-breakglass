@@ -43,6 +43,7 @@ func CanUserDo(sar authorization.SubjectAccessReview, groups []string) (bool, er
 		UserName: "system:auth-checker",
 		Groups:   groups,
 	}
+
 	client, err := kubernetes.NewForConfig(cfg)
 	if err != nil {
 		return false, errors.Wrap(err, "failed to create client")

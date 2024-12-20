@@ -10,26 +10,30 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 )
 
-type ClusterAccessReviewController struct {
+type BreakglassSessionController struct {
 	log        *zap.SugaredLogger
 	config     config.Config
 	manager    *CRDManager
 	middleware gin.HandlerFunc
 }
 
-func (ClusterAccessReviewController) BasePath() string {
+func (BreakglassSessionController) BasePath() string {
 	return "breakglass/cluster_access/"
 }
 
-func (wc *ClusterAccessReviewController) Register(rg *gin.RouterGroup) error {
+func (wc *BreakglassSessionController) Register(rg *gin.RouterGroup) error {
+	rg.GET("/breakglassSession", wc.handleGetBreakglassSessions)
+	rg.GET("/groups", wc.handleGetGroups)
+	rg.GET("/clusters", wc.handleListClusters)
+	rg.POST("/groups", wc.handleListClusters)
+
 	rg.GET("/reviews", wc.handleGetReviews)
-	rg.GET("/clusterGroupAccess", wc.handleGetClusterGroupAccess)
 	rg.POST("/accept/:name", wc.handleAccept)
 	rg.POST("/reject/:name", wc.handleReject)
 	return nil
 }
 
-func (b ClusterAccessReviewController) Handlers() []gin.HandlerFunc {
+func (b BreakglassSessionController) Handlers() []gin.HandlerFunc {
 	return []gin.HandlerFunc{b.middleware}
 }
 
@@ -39,8 +43,8 @@ type ClusterAccessReviewResponse struct {
 	UID  types.UID `json:"uid,omitempty"`
 }
 
-func (wc ClusterAccessReviewController) handleGetClusterGroupAccess(c *gin.Context) {
-	accesses, err := wc.manager.GetAllClusterGroupAccess(c.Request.Context())
+func (wc BreakglassSessionController) handleGetBreakglassSessions(c *gin.Context) {
+	accesses, err := wc.manager.GetAllBreakglassSessions(c.Request.Context())
 	if err != nil {
 		log.Printf("Error getting access reviews %v", err)
 		c.JSON(http.StatusInternalServerError, "Failed to extract cluster group access information")
@@ -50,7 +54,23 @@ func (wc ClusterAccessReviewController) handleGetClusterGroupAccess(c *gin.Conte
 	c.JSON(http.StatusOK, accesses)
 }
 
-func (wc ClusterAccessReviewController) handleGetReviews(c *gin.Context) {
+func (wc BreakglassSessionController) handleListClusters(c *gin.Context) {
+	sessions, err := wc.manager.GetAllBreakglassSessions(c.Request.Context())
+	if err != nil {
+		log.Printf("Error getting access reviews %v", err)
+		c.JSON(http.StatusInternalServerError, "Failed to extract cluster group access information")
+		return
+	}
+
+	clusters := make([]string, 0, len(sessions))
+	for _, session := range sessions {
+		clusters = append(clusters, session.Spec.Cluster)
+	}
+
+	c.JSON(http.StatusOK, clusters)
+}
+
+func (wc BreakglassSessionController) handleGetReviews(c *gin.Context) {
 	// reviews, err := wc.manager.GetReviews(c.Request.Context())
 	// if err != nil {
 	// 	log.Printf("Error getting access reviews %v", err)
@@ -71,15 +91,22 @@ func (wc ClusterAccessReviewController) handleGetReviews(c *gin.Context) {
 	// c.JSON(http.StatusOK, outReviews)
 }
 
-func (wc ClusterAccessReviewController) handleAccept(c *gin.Context) {
+// handleGetGroups
+func (wc BreakglassSessionController) handleGetGroups(c *gin.Context) {
+	// TODO: Should be stored in CRD or in config yaml
+	groupList := []string{}
+	c.JSON(http.StatusOK, groupList)
+}
+
+func (wc BreakglassSessionController) handleAccept(c *gin.Context) {
 	// wc.handleStatusChange(c, v1alpha1.StatusAccepted)
 }
 
-func (wc ClusterAccessReviewController) handleReject(c *gin.Context) {
+func (wc BreakglassSessionController) handleReject(c *gin.Context) {
 	// wc.handleStatusChange(c, v1alpha1.StatusRejected)
 }
 
-func (wc ClusterAccessReviewController) handleStatusChange(c *gin.Context) {
+func (wc BreakglassSessionController) handleStatusChange(c *gin.Context) {
 	name := c.Param("name")
 	// err := wc.manager.UpdateReviewStatusByName(c.Request.Context(), name, newStatus)
 	var err error
@@ -93,12 +120,12 @@ func (wc ClusterAccessReviewController) handleStatusChange(c *gin.Context) {
 	c.Status(http.StatusOK)
 }
 
-func NewClusterAccessReviewController(log *zap.SugaredLogger,
+func NewBreakglassSessionController(log *zap.SugaredLogger,
 	cfg config.Config,
 	manager *CRDManager,
 	middleware gin.HandlerFunc,
-) *ClusterAccessReviewController {
-	controller := &ClusterAccessReviewController{
+) *BreakglassSessionController {
+	controller := &BreakglassSessionController{
 		log:        log,
 		config:     cfg,
 		manager:    manager,

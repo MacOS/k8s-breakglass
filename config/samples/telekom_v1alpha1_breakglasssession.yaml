@@ -1,0 +1,11 @@
+apiVersion: telekom.breakglass.de/v1alpha1
+kind: BreakglassSession 
+metadata:
+  labels:
+  name: kind-sample
+spec:
+  cluster: kind
+  username: tester
+  group: breakglass-service-create
+  approvers: ["bazko@telekom.de"]
+  

@@ -1,0 +1,129 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.16.4
+  name: breakglasssessions.telekom.breakglass.de
+spec:
+  group: telekom.breakglass.de
+  names:
+    kind: BreakglassSession
+    listKind: BreakglassSessionList
+    plural: breakglasssessions
+    singular: breakglasssession
+  scope: Cluster
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          BreakglassSession is the Schema for the breakglasssessions API.
+          Session unique identifier is a triple - cluster name, username, RBAC group.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: BreakglassSessionSpec defines the desired state of BreakglassSession.
+            properties:
+              approvers:
+                description: A list of usernames (or emails) of users that can grant
+                  requested session.
+                items:
+                  type: string
+                type: array
+              cluster:
+                description: The cluster for which a breakglass session is managed.
+                type: string
+              expirationTimeout:
+                default: 1h
+                description: Max time until session becomes expired.
+                type: string
+              group:
+                description: The requested RBAC group.
+                type: string
+              historyTimeout:
+                default: 1m
+                description: Timeout value after which sesssion should be removed
+                  and no longer kept for logs / audit.
+                type: string
+              idleTimeout:
+                default: 1h
+                description: Max time a session can sit idle without being used by
+                  user after approved.
+                type: string
+              username:
+                description: The name user of a user that requested for breakglass
+                  group session.
+                type: string
+            required:
+            - approvers
+            - cluster
+            - group
+            - username
+            type: object
+          status:
+            description: BreakglassSessionStatus defines the observed state of BreakglassSessionStatus.
+            properties:
+              approved:
+                description: Defines if session is approved by one of the approvers.
+                type: boolean
+              approvedAt:
+                description: Last approval time.
+                format: date-time
+                type: string
+              expired:
+                description: Defines if session is expired by either being denied
+                  by approvers or reached expiration timeout.
+                type: boolean
+              idle:
+                description: Defines if session reached idle timeout.
+                type: boolean
+              idleUntil:
+                description: |-
+                  https://github.com/telekom/das-schiff-breakglass/issues/8
+                  Time until session is revoked due to user not actively using it.
+                format: date-time
+                type: string
+              lastUsed:
+                description: Last time session was used for breakglass session based
+                  authorization.
+                format: date-time
+                type: string
+              storeUntil:
+                description: Time until session object should be removed.
+                format: date-time
+                type: string
+              validUntil:
+                description: Time until approval is expired, rbac group can no longer
+                  be used by user.
+                format: date-time
+                type: string
+            type: object
+        required:
+        - spec
+        type: object
+    selectableFields:
+    - jsonPath: .spec.cluster
+    - jsonPath: .spec.username
+    - jsonPath: .status.expired
+    - jsonPath: .status.approved
+    served: true
+    storage: true
+    subresources:
+      status: {}

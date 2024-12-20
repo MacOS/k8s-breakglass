@@ -72,11 +72,8 @@ func NewServer(log *zap.Logger, cfg config.Config,
 
 func (s *Server) RegisterAll(controllers []APIController) error {
 	r := s.gin.Group("api")
-	// s.auth.middleware()
 	for _, c := range controllers {
-		// TODO: The middleware should be APIController based
 		if err := c.Register(r.Group(c.BasePath(), c.Handlers()...)); err != nil {
-			// if err := c.Register(r.Group(c.BasePath())); err != nil {
 			return err
 		}
 	}

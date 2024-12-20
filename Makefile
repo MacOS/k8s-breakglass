@@ -55,7 +55,7 @@ undeploy: ## Undeploy controller from the K8s cluster specified in ~/.kube/confi
 
 .PHONY: samples
 samples: 
-	$(KUBECTL) create -f config/samples/telekom_v1alpha1_clusteraccessreviewlist.yaml
+	$(KUBECTL) create -f config/samples/
 
 
 

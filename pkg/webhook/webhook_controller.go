@@ -75,7 +75,7 @@ func (wc *WebhookController) handleAuthorize(c *gin.Context) {
 	}
 
 	allowed := false
-	reason := ""
+	reason := "test reason"
 
 	if can {
 		allowed = true
@@ -99,18 +99,17 @@ func (wc *WebhookController) getUserGroupsForCluster(ctx context.Context,
 	username string,
 	clustername string,
 ) ([]string, error) {
-	groupAccess, err := wc.manager.GetClusterGroupAccess(ctx, clustername)
+	sessions, err := wc.manager.GetClusterUserBreakglassSessions(ctx, clustername, username)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to get ClusterGroupAccess")
 	}
 
-	for _, user := range groupAccess.Spec.Users {
-		if user.Username == username {
-			return user.Groups, nil
-		}
+	groups := make([]string, 0, len(sessions))
+	for _, session := range sessions {
+		groups = append(groups, session.Spec.Group)
 	}
 
-	return []string{}, nil
+	return groups, nil
 }
 
 // func (wc WebhookController) cleanupOldReviewRequests() {
