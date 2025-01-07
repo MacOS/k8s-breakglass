@@ -100,7 +100,12 @@ func (wc *WebhookController) getUserGroupsForCluster(ctx context.Context,
 	username string,
 	clustername string,
 ) ([]string, error) {
-	sessions, err := wc.manager.GetClusterUserBreakglassSessions(ctx, clustername, username)
+	selector := fmt.Sprintf(
+		"spec.cluster=%s,spec.username=%s,"+
+			"status.approved=true,status.expired=false,status.idleTimeoutReached=false",
+		clustername,
+		username)
+	sessions, err := wc.manager.GetBreakglassSessionsWithSelector(ctx, selector)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to get ClusterGroupAccess")
 	}

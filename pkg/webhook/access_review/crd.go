@@ -55,6 +55,16 @@ func (c CRDManager) GetAllBreakglassSessions(ctx context.Context) ([]telekomv1al
 	return cgal.Items, nil
 }
 
+// Get all stored GetClusterGroupAccess
+func (c CRDManager) GetBreakglassSessionByName(ctx context.Context, name string) (telekomv1alpha1.BreakglassSession, error) {
+	bs := v1alpha1.BreakglassSession{}
+	if err := c.Get(ctx, client.ObjectKey{Name: name}, &bs); err != nil {
+		return bs, errors.Wrap(err, "failed to get BreakglassSession by name")
+	}
+
+	return bs, nil
+}
+
 // Get GetClusterGroupAccess by cluster name.
 func (c CRDManager) GetClusterUserBreakglassSessions(ctx context.Context,
 	cluster string,
@@ -100,6 +110,16 @@ func (c CRDManager) UpdateBreakglassSession(ctx context.Context, bs telekomv1alp
 	c.writeMutex.Lock()
 	defer c.writeMutex.Unlock()
 	if err := c.Update(ctx, &bs); err != nil {
+		return errors.Wrapf(err, "failed to update new BreakglassSession")
+	}
+
+	return nil
+}
+
+func (c CRDManager) UpdateBreakglassSessionStatus(ctx context.Context, bs telekomv1alpha1.BreakglassSession) error {
+	c.writeMutex.Lock()
+	defer c.writeMutex.Unlock()
+	if err := c.Status().Update(ctx, &bs); err != nil {
 		return errors.Wrapf(err, "failed to update new BreakglassSession")
 	}
 

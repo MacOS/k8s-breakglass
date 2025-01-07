@@ -87,6 +87,10 @@ spec:
                 description: Last approval time.
                 format: date-time
                 type: string
+              createdAt:
+                description: Creation time.
+                format: date-time
+                type: string
               expired:
                 description: Defines if session is expired by either being denied
                   by approvers or reached expiration timeout.
@@ -117,6 +121,10 @@ spec:
                   be used by user.
                 format: date-time
                 type: string
+            required:
+            - approved
+            - expired
+            - idleTimeoutReached
             type: object
         required:
         - spec
@@ -126,6 +134,7 @@ spec:
     - jsonPath: .spec.username
     - jsonPath: .status.expired
     - jsonPath: .status.approved
+    - jsonPath: .status.idleTimeoutReached
     served: true
     storage: true
     subresources:

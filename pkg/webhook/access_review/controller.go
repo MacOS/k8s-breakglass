@@ -5,11 +5,13 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"gitlab.devops.telekom.de/schiff/engine/go-breakglass.git/pkg/config"
 	"gitlab.devops.telekom.de/schiff/engine/go-breakglass.git/pkg/webhook/access_review/api/v1alpha1"
 	"go.uber.org/zap"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 )
 
@@ -77,6 +79,27 @@ func (wc BreakglassSessionController) handleRequestBreakglassSession(c *gin.Cont
 	bs.Name = fmt.Sprintf("%s-%s-%s", request.Clustername, request.Username, request.Clustergroup)
 	if err := wc.manager.AddBreakglassSession(c.Request.Context(), bs); err != nil {
 		log.Println("error while adding breakglass session", err)
+		c.Status(http.StatusInternalServerError)
+		return
+	}
+
+	bs, err = wc.manager.GetBreakglassSessionByName(c.Request.Context(), bs.Name)
+	if err != nil {
+		log.Println("error while getting bs session", err)
+		c.Status(http.StatusInternalServerError)
+		return
+	}
+
+	const MonthDuration = time.Hour * 24 * 30
+	bs.Status = v1alpha1.BreakglassSessionStatus{
+		Expired:            false,
+		Approved:           true,
+		IdleTimeoutReached: false,
+		CreatedAt:          metav1.Now(),
+		StoreUntil:         metav1.NewTime(time.Now().Add(MonthDuration)),
+	}
+	if err := wc.manager.UpdateBreakglassSessionStatus(c.Request.Context(), bs); err != nil {
+		log.Println("error while updating breakglass session", err)
 		c.Status(http.StatusInternalServerError)
 		return
 	}

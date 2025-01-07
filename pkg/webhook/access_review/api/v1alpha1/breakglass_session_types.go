@@ -58,14 +58,17 @@ type BreakglassSessionStatus struct {
 	// Important: Run "make" to regenerate code after modifying this file
 
 	// Defines if session is expired by either being denied by approvers or reached expiration timeout.
-	Expired bool `json:"expired,omitempty"`
+	Expired bool `json:"expired"`
 
 	// Defines if session is approved by one of the approvers.
-	Approved bool `json:"approved,omitempty"`
+	Approved bool `json:"approved"`
 
 	// Not implemented
 	// Defines if session reached idle timeout.
-	IdleTimeoutReached bool `json:"idleTimeoutReached,omitempty"`
+	IdleTimeoutReached bool `json:"idleTimeoutReached"`
+
+	// Creation time.
+	CreatedAt metav1.Time `json:"createdAt,omitempty"`
 
 	// Last approval time.
 	ApprovedAt metav1.Time `json:"approvedAt,omitempty"`
@@ -92,6 +95,7 @@ type BreakglassSessionStatus struct {
 // +kubebuilder:selectablefield:JSONPath=`.spec.username`
 // +kubebuilder:selectablefield:JSONPath=`.status.expired`
 // +kubebuilder:selectablefield:JSONPath=`.status.approved`
+// +kubebuilder:selectablefield:JSONPath=`.status.idleTimeoutReached`
 
 // BreakglassSession is the Schema for the breakglasssessions API.
 // Session unique identifier is a triple - cluster name, username, RBAC group.

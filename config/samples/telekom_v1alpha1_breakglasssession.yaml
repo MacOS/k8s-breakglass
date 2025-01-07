@@ -8,7 +8,3 @@ spec:
   username: tester
   group: breakglass-service-create
   approvers: ["bazko@telekom.de"]
-# status:
-expired: false
-approved: false
-idleTimeoutReached: false
