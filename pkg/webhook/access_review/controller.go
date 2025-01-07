@@ -1,11 +1,14 @@
 package accessreview
 
 import (
+	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
 	"gitlab.devops.telekom.de/schiff/engine/go-breakglass.git/pkg/config"
+	"gitlab.devops.telekom.de/schiff/engine/go-breakglass.git/pkg/webhook/access_review/api/v1alpha1"
 	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/types"
 )
@@ -18,18 +21,13 @@ type BreakglassSessionController struct {
 }
 
 func (BreakglassSessionController) BasePath() string {
-	return "breakglass/cluster_access/"
+	return "breakglassSession/"
 }
 
 func (wc *BreakglassSessionController) Register(rg *gin.RouterGroup) error {
-	rg.GET("/breakglassSession", wc.handleGetBreakglassSessions)
-	rg.GET("/groups", wc.handleGetGroups)
-	rg.GET("/clusters", wc.handleListClusters)
-	rg.POST("/groups", wc.handleListClusters)
+	rg.GET("/", wc.handleGetBreakglassSessions)
+	rg.POST("/request", wc.handleRequestBreakglassSession)
 
-	rg.GET("/reviews", wc.handleGetReviews)
-	rg.POST("/accept/:name", wc.handleAccept)
-	rg.POST("/reject/:name", wc.handleReject)
 	return nil
 }
 
@@ -54,6 +52,38 @@ func (wc BreakglassSessionController) handleGetBreakglassSessions(c *gin.Context
 	c.JSON(http.StatusOK, accesses)
 }
 
+func (wc BreakglassSessionController) handleRequestBreakglassSession(c *gin.Context) {
+	type BreakglassSessionRequest struct {
+		Clustername  string `json:"clustername,omitempty"`
+		Username     string `json:"username,omitempty"`
+		Clustergroup string `json:"clustergroup,omitempty"`
+	}
+	request := BreakglassSessionRequest{}
+	err := json.NewDecoder(c.Request.Body).Decode(&request)
+	if err != nil {
+		log.Println("error while decoding body:", err)
+		c.Status(http.StatusUnprocessableEntity)
+		return
+	}
+	fmt.Println("REQUESTED:=", request)
+
+	// TODO: Approvers should be taken from config or some resource
+	bs := v1alpha1.NewBreakglassSession(
+		request.Clustername,
+		request.Username,
+		request.Clustergroup,
+		[]string{"approver1@telekom.de"})
+
+	bs.Name = fmt.Sprintf("%s-%s-%s", request.Clustername, request.Username, request.Clustergroup)
+	if err := wc.manager.AddBreakglassSession(c.Request.Context(), bs); err != nil {
+		log.Println("error while adding breakglass session", err)
+		c.Status(http.StatusInternalServerError)
+		return
+	}
+
+	c.JSON(http.StatusOK, request)
+}
+
 func (wc BreakglassSessionController) handleListClusters(c *gin.Context) {
 	sessions, err := wc.manager.GetAllBreakglassSessions(c.Request.Context())
 	if err != nil {
@@ -70,54 +100,11 @@ func (wc BreakglassSessionController) handleListClusters(c *gin.Context) {
 	c.JSON(http.StatusOK, clusters)
 }
 
-func (wc BreakglassSessionController) handleGetReviews(c *gin.Context) {
-	// reviews, err := wc.manager.GetReviews(c.Request.Context())
-	// if err != nil {
-	// 	log.Printf("Error getting access reviews %v", err)
-	// 	c.JSON(http.StatusInternalServerError, "Failed to extract review information")
-	// 	return
-	// }
-	//
-	// outReviews := []ClusterAccessReviewResponse{}
-	// for _, review := range reviews {
-	// 	resp := ClusterAccessReviewResponse{
-	// 		ClusterAccessReviewSpec: review.Spec,
-	// 		Name:                    review.Name,
-	// 		UID:                     review.UID,
-	// 	}
-	// 	outReviews = append(outReviews, resp)
-	// }
-
-	// c.JSON(http.StatusOK, outReviews)
-}
-
 // handleGetGroups
 func (wc BreakglassSessionController) handleGetGroups(c *gin.Context) {
 	// TODO: Should be stored in CRD or in config yaml
 	groupList := []string{}
 	c.JSON(http.StatusOK, groupList)
-}
-
-func (wc BreakglassSessionController) handleAccept(c *gin.Context) {
-	// wc.handleStatusChange(c, v1alpha1.StatusAccepted)
-}
-
-func (wc BreakglassSessionController) handleReject(c *gin.Context) {
-	// wc.handleStatusChange(c, v1alpha1.StatusRejected)
-}
-
-func (wc BreakglassSessionController) handleStatusChange(c *gin.Context) {
-	name := c.Param("name")
-	// err := wc.manager.UpdateReviewStatusByName(c.Request.Context(), name, newStatus)
-	var err error
-	// err := wc.manager.UpdateReviewStatusByUID(types.UID(name), newStatus)
-	if err != nil {
-		log.Printf("Error getting access review with id %q %v", name, err)
-		c.JSON(http.StatusInternalServerError, "Failed to extract review information")
-		return
-	}
-
-	c.Status(http.StatusOK)
 }
 
 func NewBreakglassSessionController(log *zap.SugaredLogger,

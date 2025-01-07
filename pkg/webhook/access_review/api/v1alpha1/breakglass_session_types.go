@@ -63,8 +63,9 @@ type BreakglassSessionStatus struct {
 	// Defines if session is approved by one of the approvers.
 	Approved bool `json:"approved,omitempty"`
 
+	// Not implemented
 	// Defines if session reached idle timeout.
-	Idle bool `json:"idle,omitempty"`
+	IdleTimeoutReached bool `json:"idleTimeoutReached,omitempty"`
 
 	// Last approval time.
 	ApprovedAt metav1.Time `json:"approvedAt,omitempty"`
@@ -75,10 +76,11 @@ type BreakglassSessionStatus struct {
 	// Time until session object should be removed.
 	StoreUntil metav1.Time `json:"storeUntil,omitempty"`
 
-	// https://github.com/telekom/das-schiff-breakglass/issues/8
+	// NOT IMPLEMENTED https://github.com/telekom/das-schiff-breakglass/issues/8
 	// Time until session is revoked due to user not actively using it.
 	IdleUntil metav1.Time `json:"idleUntil,omitempty"`
 
+	// NOT IMPLEMENTED https://github.com/telekom/das-schiff-breakglass/issues/8
 	// Last time session was used for breakglass session based authorization.
 	LastUsed metav1.Time `json:"lastUsed,omitempty"`
 }
@@ -115,4 +117,16 @@ type ClusterGroupRequest struct{}
 
 func init() {
 	SchemeBuilder.Register(&BreakglassSession{}, &BreakglassSessionList{})
+}
+
+func NewBreakglassSession(cluster, username, group string, approvers []string) BreakglassSession {
+	return BreakglassSession{
+		Spec: BreakglassSessionSpec{
+			Cluster:   cluster,
+			Username:  username,
+			Group:     group,
+			Approvers: approvers,
+		},
+		Status: BreakglassSessionStatus{},
+	}
 }

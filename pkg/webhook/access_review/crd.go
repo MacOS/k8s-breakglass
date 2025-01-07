@@ -74,7 +74,7 @@ func (c CRDManager) GetBreakglassSessionsWithSelector(ctx context.Context,
 
 	fs, err := fields.ParseSelector(fieldSelector)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create field selector %q : %w", err)
+		return nil, fmt.Errorf("failed to create field selector %q : %w", fieldSelector, err)
 	}
 
 	if err := c.List(ctx, &bsl, &client.ListOptions{FieldSelector: fs}); err != nil {
@@ -85,22 +85,22 @@ func (c CRDManager) GetBreakglassSessionsWithSelector(ctx context.Context,
 }
 
 // Add new breakglass session.
-func (c CRDManager) AddBreakglassSession(ctx context.Context, cga telekomv1alpha1.BreakglassSession) error {
+func (c CRDManager) AddBreakglassSession(ctx context.Context, bs telekomv1alpha1.BreakglassSession) error {
 	c.writeMutex.Lock()
 	defer c.writeMutex.Unlock()
-	if err := c.Create(ctx, &cga); err != nil {
-		return errors.Wrap(err, "failed to create new ClusterGroupAccess")
+	if err := c.Create(ctx, &bs); err != nil {
+		return errors.Wrap(err, "failed to create new BreakglassSession")
 	}
 
 	return nil
 }
 
 // Updare breakglass session.
-func (c CRDManager) UpdateBreakglassSession(ctx context.Context, cga telekomv1alpha1.BreakglassSession) error {
+func (c CRDManager) UpdateBreakglassSession(ctx context.Context, bs telekomv1alpha1.BreakglassSession) error {
 	c.writeMutex.Lock()
 	defer c.writeMutex.Unlock()
-	if err := c.Update(ctx, &cga); err != nil {
-		return errors.Wrapf(err, "failed to create new ClusterGroupAccess")
+	if err := c.Update(ctx, &bs); err != nil {
+		return errors.Wrapf(err, "failed to update new BreakglassSession")
 	}
 
 	return nil

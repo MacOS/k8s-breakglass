@@ -91,18 +91,21 @@ spec:
                 description: Defines if session is expired by either being denied
                   by approvers or reached expiration timeout.
                 type: boolean
-              idle:
-                description: Defines if session reached idle timeout.
+              idleTimeoutReached:
+                description: |-
+                  Not implemented
+                  Defines if session reached idle timeout.
                 type: boolean
               idleUntil:
                 description: |-
-                  https://github.com/telekom/das-schiff-breakglass/issues/8
+                  NOT IMPLEMENTED https://github.com/telekom/das-schiff-breakglass/issues/8
                   Time until session is revoked due to user not actively using it.
                 format: date-time
                 type: string
               lastUsed:
-                description: Last time session was used for breakglass session based
-                  authorization.
+                description: |-
+                  NOT IMPLEMENTED https://github.com/telekom/das-schiff-breakglass/issues/8
+                  Last time session was used for breakglass session based authorization.
                 format: date-time
                 type: string
               storeUntil:
