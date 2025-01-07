@@ -2,13 +2,13 @@
 import ClusterAccessCard from "@/components/ClusterAccessCard.vue";
 import { inject, onMounted, reactive } from "vue";
 import { AuthKey } from "@/keys";
-import ClusterAccessService from "@/services/cluster_access";
+import BreakglassSessionService from "@/services/breakglassSession";
 import type { ClusterAccessReview } from "@/model/cluster_access";
 import useCurrentTime from "@/util/currentTime";
 import { computed } from "@vue/reactivity";
 
 const auth = inject(AuthKey);
-const clusterAccessService = new ClusterAccessService(auth!); // eslint-disable-line @typescript-eslint/no-non-null-assertion
+const clusterAccessService = new BreakglassSessionService(auth!); // eslint-disable-line @typescript-eslint/no-non-null-assertion
 const time = useCurrentTime();
 
 const state = reactive({

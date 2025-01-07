@@ -1,12 +1,13 @@
 
-import axios, { type AxiosResponse } from "axios";
+import axios, { type AxiosResponse, AxiosHeaders } from "axios";
 
 import type AuthService from "@/services/auth";
 import type { ClusterAccessReview } from "@/model/cluster_access";
+import type { BreakglassSessionRequest } from "@/model/breakglassSession";
 
-export default class ClusterAccessService {
+export default class BreakglassSessionService {
   private client = axios.create({
-    baseURL: "/api/breakglass/cluster_access",
+    baseURL: "/api/breakglassSession/",
   });
   private auth: AuthService;
 
@@ -15,11 +16,15 @@ export default class ClusterAccessService {
 
     this.client.interceptors.request.use(async (req) => {
       if (!req.headers) {
-        req.headers = {};
+        req.headers = {} as AxiosHeaders;
       }
       req.headers["Authorization"] = `Bearer ${await this.auth.getAccessToken()}`;
       return req;
     });
+  }
+
+  public async requestSession(request: BreakglassSessionRequest) {
+    return await this.client.post("/request", request)
   }
 
   public async getClusterAccessReviews(): Promise<ClusterAccessReview[]> {
