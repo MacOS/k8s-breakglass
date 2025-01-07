@@ -60,7 +60,7 @@ const handleSendButtonClick = async () => {
           <label for="cluser_group">Cluster group: </label>
           <input type="text" id="" v-model="clusterGroup" placeholder="Enter cluster group" required />
         </div>
-        <button type="submit">Send</button>
+        <scale-button type="submit">Send</scale-button>
       </form>
     </div>
   </main>
