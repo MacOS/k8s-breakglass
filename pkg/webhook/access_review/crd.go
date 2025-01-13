@@ -48,15 +48,17 @@ func NewCRDManager() (CRDManager, error) {
 
 func SessionSelector(username, cluster, group string) string {
 	selectors := []string{}
+
 	if username != "" {
-		selectors = append(selectors, "spec.username=%s")
+		selectors = append(selectors, fmt.Sprintf("spec.username=%s", username))
 	}
 	if cluster != "" {
-		selectors = append(selectors, "spec.cluster=%s")
+		selectors = append(selectors, fmt.Sprintf("spec.cluster=%s", cluster))
 	}
 	if group != "" {
-		selectors = append(selectors, "spec.=%s")
+		selectors = append(selectors, fmt.Sprintf("spec.group=%s", group))
 	}
+
 	return strings.Join(selectors, ",")
 }
 
