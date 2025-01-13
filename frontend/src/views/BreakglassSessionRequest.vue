@@ -16,6 +16,8 @@ const authenticated = computed(() => user.value && !user.value?.expired);
 const userName = ref(route.query.username || "");
 const clusterName = ref(route.query.cluster || "");
 const clusterGroup = ref(route.query.group || "breakglass-create-all");
+const alreadyRequested = ref(false);
+const requestStatusMessage = ref("");
 
 // TODO probably move to before create
 const hasUsername = route.query.username ? true : false
@@ -29,10 +31,33 @@ const handleSendButtonClick = async () => {
     clustergroup: clusterGroup.value
   } as BreakglassSessionRequest
 
-  const response = await breakglassSession.requestSession(sessionRequest)
-  console.log(response)
+  await breakglassSession.requestSession(sessionRequest).then(response => {
+    console.log(response.status)
+    switch (response.status) {
+      case 200:
+        alreadyRequested.value = true
+        requestStatusMessage.value = "Request already created"
+        break
+      case 201:
+        alreadyRequested.value = true
+        requestStatusMessage.value = "Successfully created request"
+        break
+      default:
+        requestStatusMessage.value = "Failed to create breakglass session, please try again later"
+    }
+  }).catch(
+    err => {
+      console.log("failed to request session error:", err)
+    }
+  )
   // TODO: Update some status fields based on response 
+  // console.log(alreadyRequested)
 };
+
+const onInput = () => {
+  alreadyRequested.value = false
+  requestStatusMessage.value = ""
+}
 
 onMounted(() => {
   console.log(`the component is now mounted.`)
@@ -64,32 +89,34 @@ const fooFn = () => {
 <template>
   <main>
     <scale-card class="centered">
-    <div v-if="authenticated" class="center">
+      <div v-if="authenticated" class="center">
         <p>Request for group assignment</p>
-      <form @submit.prevent="handleSendButtonClick">
-        <div>
-          <label for="user_name">Username: </label>
-          <input type="text" id="user_name" v-model="userName" :disabled="hasUsername" placeholder="Enter user name"
-            required />
-        </div>
-        <div>
-          <label for="cluster_name">Cluster name:</label>
-          <input type="text" id="cluster_name" v-model="clusterName" :disabled="hasCluster"
-            placeholder="Enter cluster name" required />
-        </div>
-        <div>
-          <label for="cluser_group">Cluster group: </label>
-          <input type="text" id="" v-model="clusterGroup" placeholder="Enter cluster group" required />
-        </div>
-        <scale-button type="submit">Send</scale-button>
-      </form>
-    </div>
+        <form @submit.prevent="handleSendButtonClick">
+          <div>
+            <label for="user_name">Username: </label>
+            <input type="text" id="user_name" v-model="userName" :disabled="hasUsername" placeholder="Enter user name"
+              required />
+          </div>
+          <div>
+            <label for="cluster_name">Cluster name:</label>
+            <input type="text" id="cluster_name" v-model="clusterName" :disabled="hasCluster"
+              placeholder="Enter cluster name" required />
+          </div>
+          <div>
+            <label for="cluser_group">Cluster group: </label>
+            <input type="text" id="" v-model="clusterGroup" placeholder="Enter cluster group" v-on:input="onInput"
+              required />
+          </div>
+          <scale-button type="submit" :disabled="alreadyRequested" size="small">Send</scale-button>
+          <p v-if="requestStatusMessage !== ''">{{ requestStatusMessage }}</p>
+        </form>
+      </div>
     </scale-card>
 
-    <br/><br/><br/>
+    <br /><br /><br />
     <div>
       <scale-data-grid heading="Request for group assignment (does not work)" id="default-example" hide-menu>
-      <scale-button type="submit">Send</scale-button>
+        <scale-button type="submit" :disabled="alreadyRequested">Send</scale-button>
       </scale-data-grid>
     </div>
 
@@ -106,6 +133,7 @@ scale-data-grid {
   margin: 0 auto;
   max-width: 600px;
 }
+
 scale-card {
   display: block;
   margin: 0 auto;
