@@ -28,6 +28,10 @@ func main() {
 	}
 	config.Defaults()
 
+	if err := config.Validate(); err != nil {
+		log.Fatalf("Error validating config for breakglass controller: %v", err)
+	}
+
 	if debug {
 		log.Infof("%#v", config)
 	}

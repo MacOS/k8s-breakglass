@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
@@ -55,6 +56,7 @@ type Server struct {
 type ClusterAccess struct {
 	FrontendPage  string   `yaml:"frontentPage"`
 	ClusterGroups []string `yaml:"clusterGroups"`
+	Approvers     []string `yaml:"approvers"`
 }
 
 type Config struct {
@@ -65,7 +67,7 @@ type Config struct {
 	BreakglassJWT          JWT
 	Mail                   Mail
 	Frontend               Frontend
-	ClusterAccess          ClusterAccess
+	ClusterAccess          ClusterAccess `yaml:"clusterAccess"`
 }
 
 func Load() (Config, error) {
@@ -88,10 +90,19 @@ func Load() (Config, error) {
 	return config, nil
 }
 
+// Sets default values for configuration fields where it makes sense.
 func (c *Config) Defaults() {
 	if c.ClusterAccess.FrontendPage == "" {
 		c.ClusterAccess.FrontendPage = "http://localhost:5173"
 	}
+}
+
+// Validates semantically configuration fields.
+func (c Config) Validate() error {
+	if len(c.ClusterAccess.Approvers) == 0 {
+		return errors.New("ClusterAccess requires at least single approver")
+	}
+	return nil
 }
 
 func (a Transition) Equal(b Transition) bool {

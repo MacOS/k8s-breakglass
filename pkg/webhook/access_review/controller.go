@@ -144,7 +144,7 @@ func (wc BreakglassSessionController) handleRequestBreakglassSession(c *gin.Cont
 		request.Clustername,
 		request.Username,
 		request.Clustergroup,
-		[]string{"approver1@telekom.de"}) // TODO: Approvers should be taken from config or some resource
+		wc.getApprovers())
 
 	bs.Name = fmt.Sprintf("%s-%s-%s", request.Clustername, request.Username, request.Clustergroup)
 	if err := wc.manager.AddBreakglassSession(c.Request.Context(), bs); err != nil {
@@ -204,6 +204,10 @@ func (wc BreakglassSessionController) handleGetGroups(c *gin.Context) {
 	// TODO: Should be stored in CRD or in config yaml
 	groupList := []string{}
 	c.JSON(http.StatusOK, groupList)
+}
+
+func (wc BreakglassSessionController) getApprovers() []string {
+	return wc.config.ClusterAccess.Approvers
 }
 
 func NewBreakglassSessionController(log *zap.SugaredLogger,

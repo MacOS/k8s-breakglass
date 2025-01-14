@@ -12,10 +12,11 @@ type IdentityProvider interface {
 
 type KeycloakIdentityProvider struct{}
 
-func (kip KeycloakIdentityProvider) GetIdentity(c *gin.Context) (id string, err error) {
-	id = c.GetString("user_id")
-	if id == "" {
-		err = errors.New("provider failed to retrieve user_id from keycloak")
+func (kip KeycloakIdentityProvider) GetIdentity(c *gin.Context) (email string, err error) {
+	email = c.GetString("email")
+
+	if email == "" {
+		err = errors.New("keycloak provider failed to retrieve email identity")
 	}
-	return id, err
+	return
 }

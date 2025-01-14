@@ -60,7 +60,8 @@ func (a *AuthHandler) Middleware() gin.HandlerFunc {
 		}
 		bearer := authHeader[7:]
 
-		token, err := jwt.ParseWithClaims(bearer, &jwt.RegisteredClaims{}, a.jwks.Keyfunc)
+		claims := jwt.MapClaims{}
+		token, err := jwt.ParseWithClaims(bearer, &claims, a.jwks.Keyfunc)
 		if err != nil {
 			c.JSON(http.StatusUnauthorized, gin.H{
 				"error": err.Error(),
@@ -68,9 +69,14 @@ func (a *AuthHandler) Middleware() gin.HandlerFunc {
 			c.Abort()
 			return
 		}
-		claims := token.Claims.(*jwt.RegisteredClaims)
+
+		user_id := claims["sub"]
+		email := claims["email"]
+
 		c.Set("token", token)
-		c.Set("user_id", claims.Subject)
+		c.Set("user_id", user_id)
+		c.Set("email", email)
+
 		c.Next()
 	}
 }
