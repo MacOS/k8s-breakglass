@@ -76,7 +76,7 @@ func (wc *WebhookController) handleAuthorize(c *gin.Context) {
 	}
 
 	allowed := false
-	reason := "test reason"
+	reason := ""
 
 	if can {
 		allowed = true

@@ -46,8 +46,12 @@ func NewCRDManager() (CRDManager, error) {
 	return CRDManager{c, new(sync.Mutex)}, nil
 }
 
-func SessionSelector(username, cluster, group string) string {
+func SessionSelector(uname, username, cluster, group string) string {
 	selectors := []string{}
+
+	if uname != "" {
+		return fmt.Sprintf("metadata.name=%s", uname)
+	}
 
 	if username != "" {
 		selectors = append(selectors, fmt.Sprintf("spec.username=%s", username))

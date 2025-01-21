@@ -7,16 +7,21 @@ import (
 )
 
 type IdentityProvider interface {
-	GetIdentity(*gin.Context) (string, error)
+	GetIdentityEmail(*gin.Context) (string, error)
+	// GetIdentity(*gin.Context) (string, error)
 }
 
 type KeycloakIdentityProvider struct{}
 
-func (kip KeycloakIdentityProvider) GetIdentity(c *gin.Context) (email string, err error) {
+func (kip KeycloakIdentityProvider) GetIdentityEmail(c *gin.Context) (email string, err error) {
 	email = c.GetString("email")
 
 	if email == "" {
 		err = errors.New("keycloak provider failed to retrieve email identity")
 	}
 	return
+}
+
+func (kip KeycloakIdentityProvider) GetIdentity(c *gin.Context) string {
+	return c.GetString("user_id")
 }
