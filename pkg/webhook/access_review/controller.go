@@ -3,13 +3,13 @@ package accessreview
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"slices"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"gitlab.devops.telekom.de/schiff/engine/go-breakglass.git/pkg/config"
+	"gitlab.devops.telekom.de/schiff/engine/go-breakglass.git/pkg/mail"
 	"gitlab.devops.telekom.de/schiff/engine/go-breakglass.git/pkg/webhook/access_review/api/v1alpha1"
 	"go.uber.org/zap"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -23,6 +23,7 @@ type BreakglassSessionController struct {
 	manager          *CRDManager
 	middleware       gin.HandlerFunc
 	identityProvider IdentityProvider
+	mail             mail.Sender
 }
 
 func (BreakglassSessionController) BasePath() string {
@@ -59,7 +60,7 @@ func (wc BreakglassSessionController) handleGetBreakglassSessionStatus(c *gin.Co
 	sessions, err := wc.manager.GetBreakglassSessionsWithSelector(c.Request.Context(),
 		SessionSelector(uname, user, cluster, group))
 	if err != nil {
-		log.Printf("Error getting breakglass sessions %v", err)
+		wc.log.Error("Error getting breakglass sessions", zap.Error(err))
 		c.JSON(http.StatusInternalServerError, "failed to extract cluster group access information")
 		return
 	}
@@ -77,7 +78,7 @@ func (wc BreakglassSessionController) handleRequestBreakglassSession(c *gin.Cont
 	request := BreakglassSessionRequest{}
 	err := json.NewDecoder(c.Request.Body).Decode(&request)
 	if err != nil {
-		log.Println("error while decoding body:", err)
+		wc.log.Error("Error while decoding body", zap.Error(err))
 		c.Status(http.StatusUnprocessableEntity)
 		return
 	}
@@ -89,7 +90,7 @@ func (wc BreakglassSessionController) handleRequestBreakglassSession(c *gin.Cont
 	sessions, err := wc.manager.GetBreakglassSessionsWithSelector(c.Request.Context(),
 		SessionSelector("", request.Username, request.Clustername, request.Clustergroup))
 	if err != nil {
-		log.Printf("Error getting breakglass sessions %v", err)
+		wc.log.Error("Error getting breakglass sessions", zap.Error(err))
 		c.JSON(http.StatusInternalServerError, "failed to extract cluster group access information")
 		return
 	}
@@ -100,26 +101,28 @@ func (wc BreakglassSessionController) handleRequestBreakglassSession(c *gin.Cont
 
 	identity, err := wc.identityProvider.GetIdentityEmail(c)
 	if err != nil {
-		log.Printf("Error getting user identity: %v", err)
+		wc.log.Error("Error getting user identity", zap.Error(err))
 		return
 	}
+
+	approvers := wc.getApprovers()
 
 	bs := v1alpha1.NewBreakglassSession(
 		request.Clustername,
 		request.Username,
 		request.Clustergroup,
-		wc.getApprovers())
+		approvers)
 
 	bs.Name = fmt.Sprintf("%s-%s-%s", request.Clustername, request.Username, request.Clustergroup)
 	if err := wc.manager.AddBreakglassSession(c.Request.Context(), bs); err != nil {
-		log.Println("error while adding breakglass session", err)
+		wc.log.Error("error while adding breakglass session", zap.Error(err))
 		c.Status(http.StatusInternalServerError)
 		return
 	}
 
 	bs, err = wc.manager.GetBreakglassSessionByName(c.Request.Context(), bs.Name)
 	if err != nil {
-		log.Println("error while getting bs session", err)
+		wc.log.Error("error while getting breakglass session", zap.Error(err))
 		c.Status(http.StatusInternalServerError)
 		return
 	}
@@ -139,18 +142,34 @@ func (wc BreakglassSessionController) handleRequestBreakglassSession(c *gin.Cont
 	}
 
 	if err := wc.manager.UpdateBreakglassSessionStatus(c.Request.Context(), bs); err != nil {
-		log.Println("error while updating breakglass session", err)
+		wc.log.Error("error while updating breakglass session", zap.Error(err))
 		c.Status(http.StatusInternalServerError)
 		return
+	}
+
+	if err := wc.sendOnRequestEmail(bs); err != nil {
+		wc.log.Error("Error while sending breakglass session request notification email", zap.Error(err))
+		c.Status(http.StatusInternalServerError)
 	}
 
 	c.JSON(http.StatusCreated, request)
 }
 
+func (wc BreakglassSessionController) sendOnRequestEmail(bs v1alpha1.BreakglassSession) error {
+	if bs.Status.Approved {
+		fmt.Println("Sending notification that request was already approved....")
+	} else {
+		fmt.Println("Sending request to approvers ")
+	}
+	// subject := fmt.Sprintf("%s is requesting %s", requestor.Name, request.Transition.To)
+	// wc.mail.Send(approvers)
+	return nil
+}
+
 func (wc BreakglassSessionController) handleListClusters(c *gin.Context) {
 	sessions, err := wc.manager.GetAllBreakglassSessions(c.Request.Context())
 	if err != nil {
-		log.Printf("Error getting access reviews %v", err)
+		wc.log.Error("Error getting access reviews", zap.Error(err))
 		c.JSON(http.StatusInternalServerError, "Failed to extract cluster group access information")
 		return
 	}
@@ -177,7 +196,7 @@ func (wc BreakglassSessionController) getApprovers() []string {
 func (wc BreakglassSessionController) isPerformedByBreakglassAdmin(c *gin.Context) bool {
 	identity, err := wc.identityProvider.GetIdentityEmail(c)
 	if err != nil {
-		log.Printf("Error getting user identity: %v", err)
+		wc.log.Error("Error getting user identity", zap.Error(err))
 		return false
 	}
 
@@ -198,6 +217,7 @@ func NewBreakglassSessionController(log *zap.SugaredLogger,
 		manager:          manager,
 		middleware:       middleware,
 		identityProvider: ip,
+		mail:             mail.NewSender(cfg),
 	}
 
 	return controller
