@@ -72,10 +72,12 @@ func (a *AuthHandler) Middleware() gin.HandlerFunc {
 
 		user_id := claims["sub"]
 		email := claims["email"]
+		username := claims["preferred_username"]
 
 		c.Set("token", token)
 		c.Set("user_id", user_id)
 		c.Set("email", email)
+		c.Set("username", username)
 
 		c.Next()
 	}

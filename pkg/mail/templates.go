@@ -72,5 +72,5 @@ func RenderApproved(p ApprovedMailParams) (string, error) {
 }
 
 func RenderBreakglassSessionRequest(p RequestBreakglassSessionMailParams) (string, error) {
-	return render(requestTemplate, p)
+	return render(breakglassSessionTemplate, p)
 }

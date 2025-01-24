@@ -99,11 +99,12 @@ func (wc BreakglassSessionController) handleRequestBreakglassSession(c *gin.Cont
 		return
 	}
 
-	userEmail, err := wc.identityProvider.GetEmail(c)
+	useremail, err := wc.identityProvider.GetEmail(c)
 	if err != nil {
-		wc.log.Error("Error getting user identity", zap.Error(err))
+		wc.log.Error("Error getting user identity email", zap.Error(err))
 		return
 	}
+	username := wc.identityProvider.GetUsername(c)
 
 	approvers := wc.getApprovers()
 
@@ -136,7 +137,7 @@ func (wc BreakglassSessionController) handleRequestBreakglassSession(c *gin.Cont
 	}
 
 	// If user is approver he can automatically create approved request for himself or some user
-	if slices.Contains(bs.Spec.Approvers, userEmail) {
+	if slices.Contains(bs.Spec.Approvers, useremail) {
 		bs.Status.Approved = true
 		bs.Status.ApprovedAt = metav1.Now()
 	}
@@ -147,7 +148,7 @@ func (wc BreakglassSessionController) handleRequestBreakglassSession(c *gin.Cont
 		return
 	}
 
-	if err := wc.sendOnRequestEmail(bs, userEmail); err != nil {
+	if err := wc.sendOnRequestEmail(bs, useremail, username); err != nil {
 		wc.log.Error("Error while sending breakglass session request notification email", zap.Error(err))
 		c.Status(http.StatusInternalServerError)
 	}
@@ -155,7 +156,7 @@ func (wc BreakglassSessionController) handleRequestBreakglassSession(c *gin.Cont
 	c.JSON(http.StatusCreated, request)
 }
 
-func (wc BreakglassSessionController) sendOnRequestEmail(bs v1alpha1.BreakglassSession, requestEmail string) error {
+func (wc BreakglassSessionController) sendOnRequestEmail(bs v1alpha1.BreakglassSession, requestEmail, requestUsername string) error {
 	subject := fmt.Sprintf("Cluster %q user %q is requesting breakglass group assignment %q", bs.Spec.Cluster, bs.Spec.Username, bs.Spec.Group)
 	approvers := bs.Spec.Approvers
 
@@ -164,7 +165,7 @@ func (wc BreakglassSessionController) sendOnRequestEmail(bs v1alpha1.BreakglassS
 	} else {
 		body, err := mail.RenderBreakglassSessionRequest(mail.RequestBreakglassSessionMailParams{
 			SubjectEmail:      requestEmail,
-			SubjectFullName:   "keycloak user",
+			SubjectFullName:   requestUsername,
 			RequestedCluster:  bs.Spec.Cluster,
 			RequestedUsername: bs.Spec.Username,
 			RequestedGroup:    bs.Spec.Group,

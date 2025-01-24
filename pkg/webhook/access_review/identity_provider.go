@@ -8,6 +8,7 @@ import (
 
 type IdentityProvider interface {
 	GetEmail(*gin.Context) (string, error)
+	GetUsername(*gin.Context) string
 	GetIdentity(*gin.Context) string
 }
 
@@ -24,4 +25,8 @@ func (kip KeycloakIdentityProvider) GetEmail(c *gin.Context) (email string, err 
 
 func (kip KeycloakIdentityProvider) GetIdentity(c *gin.Context) string {
 	return c.GetString("user_id")
+}
+
+func (kip KeycloakIdentityProvider) GetUsername(c *gin.Context) string {
+	return c.GetString("username")
 }
