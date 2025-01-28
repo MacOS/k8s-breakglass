@@ -61,28 +61,7 @@ const onInput = () => {
 
 onMounted(() => {
   console.log(`the component is now mounted.`)
-  fooFn()
 })
-const fooFn = () => {
-  const dataGrid = document.querySelector('#default-example');
-  dataGrid.fields = [
-    {
-      type: 'text',
-      label: '',
-    },
-    {
-      type: 'text',
-      label: '',
-      editable: true,
-    },
-  ];
-  dataGrid.rows = [
-    ['Username', ''],
-    ['Cluster name', ''],
-    ['Cluster group', ''],
-  ];
-}
-// fooFn()
 
 </script>
 
@@ -93,7 +72,7 @@ const fooFn = () => {
         <p>Request for group assignment</p>
         <form @submit.prevent="handleSendButtonClick">
           <div>
-            <label for="user_name">Username: </label>
+            <label for="user_name">Username:</label>
             <input type="text" id="user_name" v-model="userName" :disabled="hasUsername" placeholder="Enter user name"
               required />
           </div>
@@ -102,30 +81,38 @@ const fooFn = () => {
             <input type="text" id="cluster_name" v-model="clusterName" :disabled="hasCluster"
               placeholder="Enter cluster name" required />
           </div>
-          <div>
-            <label for="cluser_group">Cluster group: </label>
+          <div style="margin-bottom: 5px;">
+            <label for="cluser_group">Cluster group:</label>
             <input type="text" id="" v-model="clusterGroup" placeholder="Enter cluster group" v-on:input="onInput"
               required />
           </div>
-          <scale-button type="submit" :disabled="alreadyRequested" size="small">Send</scale-button>
+
+          <div>
+            <scale-button type="submit" :disabled="alreadyRequested" size="small">Send</scale-button>
+          </div>
+
           <p v-if="requestStatusMessage !== ''">{{ requestStatusMessage }}</p>
+
         </form>
+
       </div>
     </scale-card>
-
-    <br /><br /><br />
-    <div>
-      <scale-data-grid heading="Request for group assignment (does not work)" id="default-example" hide-menu>
-        <scale-button type="submit" :disabled="alreadyRequested">Send</scale-button>
-      </scale-data-grid>
-    </div>
-
   </main>
 </template>
 
 <style scoped>
 .center {
   text-align: center;
+}
+
+input {
+  margin-left: 5px;
+}
+
+label {
+  display: inline-block;
+  width: 110px;
+  text-align: right;
 }
 
 scale-data-grid {

@@ -1,6 +1,5 @@
 <script setup lang="ts">
-import { inject, computed, ref } from "vue";
-import axios from 'axios';
+import { inject, computed } from "vue";
 import { useRoute } from "vue-router";
 
 import { AuthKey } from "@/keys";
@@ -29,39 +28,6 @@ const userNav = computed(() => {
   }
 });
 
-const userName = ref("");
-const clusterName = ref("");
-
-// Function to handle the form submission
-const handleSendButtonClick = async () => {
-  if (userName.value && clusterName.value) {
-    try {
-      // const bearer = `Bearer ${await auth.getAccessToken()}`;
-      const bearer = 'foo'
-      const response = await axios.post('/api/breakglass/test', {
-        user_name: userName.value,
-        cluster_name: clusterName.value,
-      }, {
-        headers: {
-          "Authorization": bearer
-        },
-      });
-      console.log('Data sent: ', userName.value, clusterName.value);
-      console.log(bearer)
-      alert(`User ${userName.value} get increased privileges on ${clusterName.value} cluster`);
-      // response.then((response) => {
-      //   console.log(response)
-      // })
-      userName.value = '';
-      clusterName.value = '';
-    } catch (error) {
-      console.error('Error sending data:', error);
-      alert('Failed to send data. Please try again.');
-    }
-  } else {
-    alert('Please enter both user name and cluster name!');
-  }
-};
 
 function login() {
   auth?.login({ path: route.fullPath });
