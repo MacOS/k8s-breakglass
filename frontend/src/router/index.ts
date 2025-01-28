@@ -2,6 +2,7 @@ import ApproveView from "@/views/ApproveView.vue";
 import BreakglassView from "@/views/BreakglassView.vue";
 import WebhookAccessView from "@/views/WebhookAccessView.vue";
 import BreaglassSessionRequestView from "@/views/BreakglassSessionRequest.vue";
+import BreaglassSessionReviewView from "@/views/BreakglassSessionReview.vue";
 
 import { createRouter, createWebHistory } from "vue-router";
 
@@ -27,6 +28,11 @@ const router = createRouter({
       path: "/breakglassSession/request",
       name: "breakglassSessionRequest",
       component: BreaglassSessionRequestView,
+    },
+    {
+      path: "/breakglassSession/review",
+      name: "breakglassSessionReview",
+      component: BreaglassSessionReviewView,
     },
   ],
 });
