@@ -21,54 +21,74 @@ const groupName = ref(route.query.group?.toString() || "");
 
 const state = reactive({
   breakglasses: new Array(),
-  message: "",
+  getBreakglassesMsg: "",
   loading: true,
   refreshing: false,
   search: "",
 });
 
-onMounted(async () => {
+async function getBreakglasses() {
+  state.loading = true;
   await service.getSessionStatus({
     uname: resourceName.value,
     clustername: clusterName.value,
     username: userName.value,
     clustergroup: groupName.value
   }).then(response => {
-    console.log("response:=", response)
     switch (response.status) {
       case 200:
-        state.message = ""
+        state.getBreakglassesMsg = ""
         state.breakglasses = response.data
-        console.log(state.breakglasses[0])
         break
     }
   }).catch(errResponse => {
     if (errResponse.status == 401) {
-      state.message = "You are not authorized to display requested resources"
+      state.getBreakglassesMsg = "You are not authorized to display requested resources"
     }
-    console.log("err1:=", errResponse)
+    console.log("status list error", errResponse)
   });
-
-  console.log(state.breakglasses);
   state.loading = false;
+}
+onMounted(async () => {
+  getBreakglasses()
+  console.log(state.breakglasses);
 });
 
 const filteredBreakglasses = computed(() => {
   if (state.search === "") {
     return state.breakglasses;
   }
-  return state.breakglasses.filter((bg) => bg.to?.includes(state.search) || bg.from?.includes(state.search));
+  // return state.breakglasses.filter((bg) => true);
 });
 
-function onRequest(bg: any) {
-  console.log("REQUESTING BG", bg)
-  // breakglassService.requestBreakglass(bg);
+function onAccept(bg: any) {
+  service.approveReview({ uname: bg.metadata.name }).then(response => {
+    switch (response.status) {
+      case 200:
+        getBreakglasses()
+        break
+    }
+  }).catch(errResponse => {
+    if (errResponse.status == 401) {
+      state.getBreakglassesMsg = "You are not authorized to display requested resources"
+    }
+    console.log("approve error", errResponse)
+  });
 }
 
 async function onReject(bg: any) {
-  console.log("DROPING BG", bg)
-  // await breakglassService.dropBreakglass(bg);
-  // state.breakglasses = await breakglassService.getBreakglasses();
+  service.rejectReview({ uname: bg.metadata.name }).then(response => {
+    switch (response.status) {
+      case 200:
+        getBreakglasses()
+        break
+    }
+  }).catch(errResponse => {
+    if (errResponse.status == 401) {
+      state.getBreakglassesMsg = "You are not authorized to display requested resources"
+    }
+    console.log("reject error", errResponse)
+  });
 }
 </script>
 
@@ -77,16 +97,12 @@ async function onReject(bg: any) {
   <main>
     <div v-if="authenticated" class="center">
       <div>
-        {{ state.message }}
+        {{ state.getBreakglassesMsg }}
       </div>
 
       <div class="breakglass-list">
-        <BreakglassSessionCard v-for="bg in filteredBreakglasses"
-          class="card"
-          :breakglass="bg"
-          :time="time"
-          @accept="() => {onRequest(bg);}"
-          @reject="() => {onReject(bg);}">
+        <BreakglassSessionCard v-for="bg in filteredBreakglasses" class="card" :breakglass="bg" :time="time"
+          @accept="() => { onAccept(bg); }" @reject="() => { onReject(bg); }">
         </BreakglassSessionCard>
       </div>
     </div>
@@ -98,15 +114,12 @@ async function onReject(bg: any) {
   text-align: center;
 }
 
-scale-data-grid {
-  display: block;
-  margin: 0 auto;
-  max-width: 600px;
+
+.breakglass-list {
+  display: flex;
+  gap: 2rem;
+  flex-wrap: wrap;
+  justify-content: center;
 }
 
-scale-card {
-  display: block;
-  margin: 0 auto;
-  max-width: 500px;
-}
 </style>

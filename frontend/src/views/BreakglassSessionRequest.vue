@@ -50,8 +50,6 @@ const handleSendButtonClick = async () => {
       console.log("failed to request session error:", err)
     }
   )
-  // TODO: Update some status fields based on response 
-  // console.log(alreadyRequested)
 };
 
 const onInput = () => {
@@ -126,4 +124,5 @@ scale-card {
   margin: 0 auto;
   max-width: 500px;
 }
+
 </style>

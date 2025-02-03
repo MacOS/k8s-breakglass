@@ -11,11 +11,15 @@ import (
 	"gitlab.devops.telekom.de/schiff/engine/go-breakglass.git/pkg/config"
 	"gitlab.devops.telekom.de/schiff/engine/go-breakglass.git/pkg/mail"
 	"gitlab.devops.telekom.de/schiff/engine/go-breakglass.git/pkg/webhook/access_review/api/v1alpha1"
+	telekomv1alpha1 "gitlab.devops.telekom.de/schiff/engine/go-breakglass.git/pkg/webhook/access_review/api/v1alpha1"
 	"go.uber.org/zap"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-const MonthDuration = time.Hour * 24 * 30
+const (
+	MonthDuration = time.Hour * 24 * 30
+	WeekDuration  = time.Hour * 24 * 7
+)
 
 type BreakglassSessionController struct {
 	log              *zap.SugaredLogger
@@ -158,39 +162,75 @@ func (wc BreakglassSessionController) handleRequestBreakglassSession(c *gin.Cont
 	c.JSON(http.StatusCreated, request)
 }
 
+func (wc BreakglassSessionController) updateStatus(c *gin.Context, statusFn func(*telekomv1alpha1.BreakglassSession)) {
+	if !wc.isPerformedByBreakglassAdmin(c) {
+		c.Status(http.StatusUnauthorized)
+		return
+	}
+	uname := c.Param("uname")
+
+	bs, err := wc.manager.GetBreakglassSessionByName(c.Request.Context(), uname)
+	if err != nil {
+		wc.log.Error("error while getting breakglass session", zap.Error(err))
+		c.Status(http.StatusInternalServerError)
+		return
+	}
+
+	statusFn(&bs)
+
+	if err := wc.manager.UpdateBreakglassSessionStatus(c.Request.Context(), bs); err != nil {
+		wc.log.Error("error while updating breakglass session", zap.Error(err))
+		c.Status(http.StatusInternalServerError)
+		return
+	}
+
+	c.JSON(http.StatusOK, bs)
+}
+
 func (wc BreakglassSessionController) handleApproveBreakglassSession(c *gin.Context) {
-	fmt.Println("approving breakglass session")
+	wc.updateStatus(c,
+		func(bs *telekomv1alpha1.BreakglassSession) {
+			bs.Status.Approved = true
+			bs.Status.ApprovedAt = metav1.Now()
+			bs.Status.ValidUntil = metav1.NewTime(bs.Status.ApprovedAt.Add(WeekDuration))
+		})
 }
 
 func (wc BreakglassSessionController) handleRejectBreakglassSession(c *gin.Context) {
-	fmt.Println("approving breakglass session")
+	wc.updateStatus(c,
+		func(bs *telekomv1alpha1.BreakglassSession) {
+			bs.Status.Approved = false
+			bs.Status.ApprovedAt = metav1.Unix(0, 0)
+			bs.Status.ValidUntil = metav1.Unix(0, 0)
+		})
 }
 
 func (wc BreakglassSessionController) sendOnRequestEmail(bs v1alpha1.BreakglassSession, requestEmail, requestUsername string) error {
 	subject := fmt.Sprintf("Cluster %q user %q is requesting breakglass group assignment %q", bs.Spec.Cluster, bs.Spec.Username, bs.Spec.Group)
 	approvers := bs.Spec.Approvers
 
-	// TODO: In case user is an admin and get instantly approved request we coudl send notification only
-	// if bs.Status.Approved {
-	// } else {
-	body, err := mail.RenderBreakglassSessionRequest(mail.RequestBreakglassSessionMailParams{
-		SubjectEmail:      requestEmail,
-		SubjectFullName:   requestUsername,
-		RequestedCluster:  bs.Spec.Cluster,
-		RequestedUsername: bs.Spec.Username,
-		RequestedGroup:    bs.Spec.Group,
-		URL:               fmt.Sprintf("%s/breakglassSession/review?name=%s", wc.config.ClusterAccess.FrontendPage, bs.Name),
-	})
-	if err != nil {
-		wc.log.Errorf("failed to render email template: %v", err)
-		return err
-	}
+	if bs.Status.Approved {
+		// TODO: In case user is an admin and get instantly approved request we coudl send notification only
+		wc.log.Info("sending notification...")
+	} else {
+		body, err := mail.RenderBreakglassSessionRequest(mail.RequestBreakglassSessionMailParams{
+			SubjectEmail:      requestEmail,
+			SubjectFullName:   requestUsername,
+			RequestedCluster:  bs.Spec.Cluster,
+			RequestedUsername: bs.Spec.Username,
+			RequestedGroup:    bs.Spec.Group,
+			URL:               fmt.Sprintf("%s/breakglassSession/review?name=%s", wc.config.ClusterAccess.FrontendPage, bs.Name),
+		})
+		if err != nil {
+			wc.log.Errorf("failed to render email template: %v", err)
+			return err
+		}
 
-	if err := wc.mail.Send(approvers, subject, body); err != nil {
-		wc.log.Errorf("failed to send request email: %v", err)
-		return err
+		if err := wc.mail.Send(approvers, subject, body); err != nil {
+			wc.log.Errorf("failed to send request email: %v", err)
+			return err
+		}
 	}
-	// }
 
 	return nil
 }

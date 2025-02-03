@@ -14,8 +14,8 @@ const props = defineProps<{
 
 const emit = defineEmits(["accept", "reject"]);
 
-const active = true //;computed(() => Date.parse(props.breakglassSession.until) - props.time > 0)
-const accepted = computed(() => props.breakglass.application_status == "accepted")
+const active = computed(() => Date.parse(props.breakglass.status.validUntil) - props.time > 0)
+const approved = computed(() => props.breakglass.status.approved)
 
 function accept() {
   emit("accept");
@@ -26,12 +26,11 @@ function reject() {
 }
 
 const expiryHumanized = computed(() => {
-  // if (!active.value) {
+  // if (!active) {
   //   return "already expired";
   // }
-  // const until = Date.parse(props.breakglassSession.until)
-  // const duration = until - props.time
-  const duration = 0
+  const until = Date.parse(props.breakglass.status.validUntil)
+  const duration = until - props.time
   return humanizeDuration(duration, humanizeConfig);
 });
 
@@ -45,38 +44,34 @@ const expiryHumanized = computed(() => {
       </p>
 
       <p>
-       Username: <b>{{ breakglass.spec.username }}</b>
+        Username: <b>{{ breakglass.spec.username }}</b>
       </p>
 
       <p>
-       Cluster name: <b>{{ breakglass.spec.cluster }}</b>
+        Cluster name: <b>{{ breakglass.spec.cluster }}</b>
       </p>
 
       <p>
         <b>Approvers:</b> <br>
-        <small v-for="approver in  breakglass.spec.approvers"> {{ approver }}<br> </small>
+        <small v-for="approver in breakglass.spec.approvers"> {{ approver }}<br> </small>
       </p>
 
     </span>
 
-    <p class="expiry">
+    <p v-if="approved" class="expiry">
       Expires in<br />
       <b>{{ expiryHumanized }}</b>
     </p>
 
     <p v-if="active" class="actions">
-      <scale-button v-if="!accepted" @click="accept">Accept </scale-button>
-      <scale-button variant="secondary" @click="reject">Reject</scale-button>
+      <scale-button v-if="!approved" @click="accept">Accept </scale-button>
+      <scale-button v-if="approved" variant="secondary" @click="reject">Reject</scale-button>
     </p>
 
   </scale-card>
 </template>
 
 <style scoped>
-scale-card {
-  display: inline-block;
-  max-width: 300px;
-}
 
 scale-button {
   margin: 0 0.4rem;
@@ -87,8 +82,15 @@ scale-button {
   text-align: center;
 }
 
-.to,
-.expiry {
-  text-align: center;
+scale-card {
+  display: inline-block;
+  max-width: 400px;
 }
+
+scale-data-grid {
+  display: block;
+  margin: 0 auto;
+  max-width: 600px;
+}
+
 </style>

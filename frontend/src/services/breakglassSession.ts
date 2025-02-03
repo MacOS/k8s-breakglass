@@ -44,12 +44,13 @@ export default class BreakglassSessionService {
     return reviews.data
   }
 
-  public async approveReview(review: ClusterAccessReview) {
-    return await this.client.post("/accept/" + review.name)
+  public async approveReview(review: BreakglassSessionRequest) {
+    console.log(review.uname)
+    return await this.client.post("/approve/" + review.uname)
   }
 
-  public async rejectReview(review: ClusterAccessReview) {
-    return await this.client.post("/reject/" + review.name)
+  public async rejectReview(review: BreakglassSessionRequest) {
+    return await this.client.post("/reject/" + review.uname)
   }
 
   // public async getBreakglasses(): Promise<Breakglass[]> {
