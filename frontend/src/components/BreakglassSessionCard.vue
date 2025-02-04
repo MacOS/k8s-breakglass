@@ -14,7 +14,8 @@ const props = defineProps<{
 
 const emit = defineEmits(["accept", "reject"]);
 
-const active = computed(() => Date.parse(props.breakglass.status.validUntil) - props.time > 0)
+const active = computed(() => props.breakglass.status.validUntil === null  ||
+  Date.parse(props.breakglass.status.validUntil) - props.time > 0)
 const approved = computed(() => props.breakglass.status.approved)
 
 function accept() {
@@ -26,9 +27,9 @@ function reject() {
 }
 
 const expiryHumanized = computed(() => {
-  // if (!active) {
-  //   return "already expired";
-  // }
+  if (!active) {
+    return "already expired";
+  }
   const until = Date.parse(props.breakglass.status.validUntil)
   const duration = until - props.time
   return humanizeDuration(duration, humanizeConfig);
@@ -72,7 +73,6 @@ const expiryHumanized = computed(() => {
 </template>
 
 <style scoped>
-
 scale-button {
   margin: 0 0.4rem;
 }
@@ -92,5 +92,4 @@ scale-data-grid {
   margin: 0 auto;
   max-width: 600px;
 }
-
 </style>

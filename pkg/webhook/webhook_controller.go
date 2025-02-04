@@ -68,6 +68,9 @@ func (wc *WebhookController) handleAuthorize(c *gin.Context) {
 		return
 	}
 
+	// NOTE: If we want to know specific group that allowed user to perform the operation we would
+	// need to iterate over groups (sessions) and note the first that is ok. Then we could update its
+	// last used parameters and idle value.
 	can, err := accessreview.CanUserDo(sar, groups)
 	if err != nil {
 		log.Println("error while checking RBAC permissions", err)

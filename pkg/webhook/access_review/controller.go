@@ -200,8 +200,8 @@ func (wc BreakglassSessionController) handleRejectBreakglassSession(c *gin.Conte
 	wc.updateStatus(c,
 		func(bs *telekomv1alpha1.BreakglassSession) {
 			bs.Status.Approved = false
-			bs.Status.ApprovedAt = metav1.Unix(0, 0)
-			bs.Status.ValidUntil = metav1.Unix(0, 0)
+			bs.Status.ApprovedAt = metav1.Time{}
+			bs.Status.ValidUntil = metav1.Time{}
 		})
 }
 
