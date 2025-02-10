@@ -94,22 +94,35 @@ func (c CRDManager) GetClusterUserBreakglassSessions(ctx context.Context,
 	selector := fmt.Sprintf("spec.cluster=%s,spec.username=%s",
 		cluster,
 		user)
-	return c.GetBreakglassSessionsWithSelector(ctx, selector)
+	return c.GetBreakglassSessionsWithSelectorString(ctx, selector)
+}
+
+// GetBreakglassSessions with custom field selector string.
+func (c CRDManager) GetBreakglassSessionsWithSelectorString(ctx context.Context,
+	selectorString string,
+) ([]telekomv1alpha1.BreakglassSession, error) {
+	bsl := v1alpha1.BreakglassSessionList{}
+
+	fs, err := fields.ParseSelector(selectorString)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create field selector %q : %w", selectorString, err)
+	}
+
+	if err := c.List(ctx, &bsl, &client.ListOptions{FieldSelector: fs}); err != nil {
+		return nil, errors.Wrapf(err, "failed to list BreakglassSessionList with string selector")
+	}
+
+	return bsl.Items, nil
 }
 
 // GetBreakglassSessions with custom field selector.
 func (c CRDManager) GetBreakglassSessionsWithSelector(ctx context.Context,
-	fieldSelector string,
+	fs fields.Selector,
 ) ([]telekomv1alpha1.BreakglassSession, error) {
 	bsl := v1alpha1.BreakglassSessionList{}
 
-	fs, err := fields.ParseSelector(fieldSelector)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create field selector %q : %w", fieldSelector, err)
-	}
-
 	if err := c.List(ctx, &bsl, &client.ListOptions{FieldSelector: fs}); err != nil {
-		return nil, errors.Wrapf(err, "failed to list BreakglassSessionList")
+		return nil, errors.Wrapf(err, "failed to list BreakglassSessionList with selector")
 	}
 
 	return bsl.Items, nil

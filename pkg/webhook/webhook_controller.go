@@ -12,6 +12,7 @@ import (
 	"gitlab.devops.telekom.de/schiff/engine/go-breakglass.git/pkg/config"
 	accessreview "gitlab.devops.telekom.de/schiff/engine/go-breakglass.git/pkg/webhook/access_review"
 	"go.uber.org/zap"
+	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/kubernetes/pkg/apis/authorization"
 )
 
@@ -100,11 +101,15 @@ func (wc *WebhookController) getUserGroupsForCluster(ctx context.Context,
 	username string,
 	clustername string,
 ) ([]string, error) {
-	selector := fmt.Sprintf(
-		"spec.cluster=%s,spec.username=%s,"+
-			"status.approved=true,status.expired=false,status.idleTimeoutReached=false",
-		clustername,
-		username)
+	selector := fields.SelectorFromSet(
+		fields.Set{
+			"spec.cluster":              clustername,
+			"spec.username":             username,
+			"status.expired":            "false",
+			"status.approved":           "true",
+			"status.idleTimeoutReached": "false",
+		},
+	)
 	sessions, err := wc.manager.GetBreakglassSessionsWithSelector(ctx, selector)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to get ClusterGroupAccess")
