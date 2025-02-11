@@ -17,7 +17,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 )
 
-type CRDManager struct {
+type ResourceManager struct {
 	client.Client
 	writeMutex *sync.Mutex
 }
@@ -34,16 +34,16 @@ func init() {
 	// +kubebuilder:scaffold:scheme
 }
 
-func NewCRDManager() (CRDManager, error) {
+func NewCRDManager() (ResourceManager, error) {
 	cfg := config.GetConfigOrDie()
 	c, err := client.New(cfg, client.Options{
 		Scheme: scheme,
 	})
 	if err != nil {
-		return CRDManager{}, errors.Wrap(err, "failed to create new client")
+		return ResourceManager{}, errors.Wrap(err, "failed to create new client")
 	}
 
-	return CRDManager{c, new(sync.Mutex)}, nil
+	return ResourceManager{c, new(sync.Mutex)}, nil
 }
 
 func SessionSelector(uname, username, cluster, group string) string {
@@ -67,7 +67,7 @@ func SessionSelector(uname, username, cluster, group string) string {
 }
 
 // Get all stored GetClusterGroupAccess
-func (c CRDManager) GetAllBreakglassSessions(ctx context.Context) ([]telekomv1alpha1.BreakglassSession, error) {
+func (c ResourceManager) GetAllBreakglassSessions(ctx context.Context) ([]telekomv1alpha1.BreakglassSession, error) {
 	cgal := v1alpha1.BreakglassSessionList{}
 	if err := c.List(ctx, &cgal); err != nil {
 		return nil, errors.Wrap(err, "failed to get BreakglassSessionList")
@@ -77,7 +77,7 @@ func (c CRDManager) GetAllBreakglassSessions(ctx context.Context) ([]telekomv1al
 }
 
 // Get all stored GetClusterGroupAccess
-func (c CRDManager) GetBreakglassSessionByName(ctx context.Context, name string) (telekomv1alpha1.BreakglassSession, error) {
+func (c ResourceManager) GetBreakglassSessionByName(ctx context.Context, name string) (telekomv1alpha1.BreakglassSession, error) {
 	bs := v1alpha1.BreakglassSession{}
 	if err := c.Get(ctx, client.ObjectKey{Name: name}, &bs); err != nil {
 		return bs, errors.Wrap(err, "failed to get BreakglassSession by name")
@@ -87,7 +87,7 @@ func (c CRDManager) GetBreakglassSessionByName(ctx context.Context, name string)
 }
 
 // Get GetClusterGroupAccess by cluster name.
-func (c CRDManager) GetClusterUserBreakglassSessions(ctx context.Context,
+func (c ResourceManager) GetClusterUserBreakglassSessions(ctx context.Context,
 	cluster string,
 	user string,
 ) ([]telekomv1alpha1.BreakglassSession, error) {
@@ -98,7 +98,7 @@ func (c CRDManager) GetClusterUserBreakglassSessions(ctx context.Context,
 }
 
 // GetBreakglassSessions with custom field selector string.
-func (c CRDManager) GetBreakglassSessionsWithSelectorString(ctx context.Context,
+func (c ResourceManager) GetBreakglassSessionsWithSelectorString(ctx context.Context,
 	selectorString string,
 ) ([]telekomv1alpha1.BreakglassSession, error) {
 	bsl := v1alpha1.BreakglassSessionList{}
@@ -116,7 +116,7 @@ func (c CRDManager) GetBreakglassSessionsWithSelectorString(ctx context.Context,
 }
 
 // GetBreakglassSessions with custom field selector.
-func (c CRDManager) GetBreakglassSessionsWithSelector(ctx context.Context,
+func (c ResourceManager) GetBreakglassSessionsWithSelector(ctx context.Context,
 	fs fields.Selector,
 ) ([]telekomv1alpha1.BreakglassSession, error) {
 	bsl := v1alpha1.BreakglassSessionList{}
@@ -129,7 +129,7 @@ func (c CRDManager) GetBreakglassSessionsWithSelector(ctx context.Context,
 }
 
 // Add new breakglass session.
-func (c CRDManager) AddBreakglassSession(ctx context.Context, bs telekomv1alpha1.BreakglassSession) error {
+func (c ResourceManager) AddBreakglassSession(ctx context.Context, bs telekomv1alpha1.BreakglassSession) error {
 	c.writeMutex.Lock()
 	defer c.writeMutex.Unlock()
 	if err := c.Create(ctx, &bs); err != nil {
@@ -140,7 +140,7 @@ func (c CRDManager) AddBreakglassSession(ctx context.Context, bs telekomv1alpha1
 }
 
 // Update breakglass session.
-func (c CRDManager) UpdateBreakglassSession(ctx context.Context, bs telekomv1alpha1.BreakglassSession) error {
+func (c ResourceManager) UpdateBreakglassSession(ctx context.Context, bs telekomv1alpha1.BreakglassSession) error {
 	c.writeMutex.Lock()
 	defer c.writeMutex.Unlock()
 	if err := c.Update(ctx, &bs); err != nil {
@@ -150,7 +150,7 @@ func (c CRDManager) UpdateBreakglassSession(ctx context.Context, bs telekomv1alp
 	return nil
 }
 
-func (c CRDManager) UpdateBreakglassSessionStatus(ctx context.Context, bs telekomv1alpha1.BreakglassSession) error {
+func (c ResourceManager) UpdateBreakglassSessionStatus(ctx context.Context, bs telekomv1alpha1.BreakglassSession) error {
 	c.writeMutex.Lock()
 	defer c.writeMutex.Unlock()
 	if err := c.Status().Update(ctx, &bs); err != nil {
@@ -159,7 +159,6 @@ func (c CRDManager) UpdateBreakglassSessionStatus(ctx context.Context, bs teleko
 
 	return nil
 }
-
 
 // func (c CRDManager) AddAccessReview(ctx context.Context, car v1alpha1.ClusterAccessReview) error {
 // 	if car.Spec.Cluster == "" || car.Spec.Subject.Username == "" {

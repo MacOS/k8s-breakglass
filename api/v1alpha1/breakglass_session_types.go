@@ -112,14 +112,12 @@ type BreakglassSession struct {
 
 // +kubebuilder:object:root=true
 
-// BreakglassSessionList contains a list of ClusterGroup.
+// BreakglassSessionList contains a list of BreakglassSession.
 type BreakglassSessionList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []BreakglassSession `json:"items"`
 }
-
-type ClusterGroupRequest struct{}
 
 func init() {
 	SchemeBuilder.Register(&BreakglassSession{}, &BreakglassSessionList{})

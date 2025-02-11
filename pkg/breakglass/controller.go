@@ -31,7 +31,7 @@ var ErrSessionNotFound error = errors.New("session not found")
 type BreakglassSessionController struct {
 	log              *zap.SugaredLogger
 	config           config.Config
-	manager          *CRDManager
+	manager          *ResourceManager
 	middleware       gin.HandlerFunc
 	identityProvider IdentityProvider
 	mail             mail.Sender
@@ -337,7 +337,7 @@ func (wc BreakglassSessionController) isPerformedByBreakglassAdmin(c *gin.Contex
 
 func NewBreakglassSessionController(log *zap.SugaredLogger,
 	cfg config.Config,
-	manager *CRDManager,
+	manager *ResourceManager,
 	middleware gin.HandlerFunc,
 ) *BreakglassSessionController {
 	// TODO: Probably a switch based on config

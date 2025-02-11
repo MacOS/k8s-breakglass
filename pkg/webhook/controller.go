@@ -30,7 +30,7 @@ type SubjectAccessReviewResponse struct {
 type WebhookController struct {
 	log     *zap.SugaredLogger
 	config  config.Config
-	manager *breakglass.CRDManager
+	manager *breakglass.ResourceManager
 }
 
 func (WebhookController) BasePath() string {
@@ -123,7 +123,7 @@ func (wc *WebhookController) getUserGroupsForCluster(ctx context.Context,
 	return groups, nil
 }
 
-func NewWebhookController(log *zap.SugaredLogger, cfg config.Config, manager *breakglass.CRDManager) *WebhookController {
+func NewWebhookController(log *zap.SugaredLogger, cfg config.Config, manager *breakglass.ResourceManager) *WebhookController {
 	controller := &WebhookController{
 		log:     log,
 		config:  cfg,
