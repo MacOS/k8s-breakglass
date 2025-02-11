@@ -139,7 +139,7 @@ func (c CRDManager) AddBreakglassSession(ctx context.Context, bs telekomv1alpha1
 	return nil
 }
 
-// Updare breakglass session.
+// Update breakglass session.
 func (c CRDManager) UpdateBreakglassSession(ctx context.Context, bs telekomv1alpha1.BreakglassSession) error {
 	c.writeMutex.Lock()
 	defer c.writeMutex.Unlock()
@@ -159,6 +159,7 @@ func (c CRDManager) UpdateBreakglassSessionStatus(ctx context.Context, bs teleko
 
 	return nil
 }
+
 
 // func (c CRDManager) AddAccessReview(ctx context.Context, car v1alpha1.ClusterAccessReview) error {
 // 	if car.Spec.Cluster == "" || car.Spec.Subject.Username == "" {

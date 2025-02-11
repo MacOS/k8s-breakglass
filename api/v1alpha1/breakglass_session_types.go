@@ -57,7 +57,8 @@ type BreakglassSessionSpec struct {
 type BreakglassSessionStatus struct {
 	// Important: Run "make" to regenerate code after modifying this file
 
-	// Defines if session is expired by either being denied by approvers or reached expiration timeout.
+	// Defines if session is expired by either being denied by approvers
+	// or reached expiration timeout.
 	Expired bool `json:"expired"`
 
 	// Defines if session is approved by one of the approvers.
