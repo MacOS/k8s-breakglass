@@ -1,4 +1,4 @@
-package session
+package breakglass
 
 import (
 	"context"
@@ -12,7 +12,7 @@ import (
 
 type CleanupRoutine struct {
 	Log     *zap.SugaredLogger
-	Manager *ResourceManager
+	Manager *SessionManager
 }
 
 func (cr CleanupRoutine) CleanupRoutine() {

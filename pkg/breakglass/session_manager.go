@@ -1,4 +1,4 @@
-package session
+package breakglass
 
 import (
 	"context"
@@ -10,40 +10,27 @@ import (
 	"gitlab.devops.telekom.de/schiff/engine/go-breakglass.git/api/v1alpha1"
 	telekomv1alpha1 "gitlab.devops.telekom.de/schiff/engine/go-breakglass.git/api/v1alpha1"
 	"k8s.io/apimachinery/pkg/fields"
-	"k8s.io/apimachinery/pkg/runtime"
-	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
-	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 )
 
-type ResourceManager struct {
+type SessionManager struct {
 	client.Client
 	writeMutex *sync.Mutex
 }
 
-var (
-	scheme            = runtime.NewScheme()
-	ErrAccessNotFound = errors.New("access not found")
-)
+var ErrAccessNotFound = errors.New("access not found")
 
-func init() {
-	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
-
-	utilruntime.Must(telekomv1alpha1.AddToScheme(scheme))
-	// +kubebuilder:scaffold:scheme
-}
-
-func NewResourceManager() (ResourceManager, error) {
+func NewSessionManager() (SessionManager, error) {
 	cfg := config.GetConfigOrDie()
 	c, err := client.New(cfg, client.Options{
 		Scheme: scheme,
 	})
 	if err != nil {
-		return ResourceManager{}, errors.Wrap(err, "failed to create new client")
+		return SessionManager{}, errors.Wrap(err, "failed to create new client")
 	}
 
-	return ResourceManager{c, new(sync.Mutex)}, nil
+	return SessionManager{c, new(sync.Mutex)}, nil
 }
 
 func SessionSelector(uname, username, cluster, group string) string {
@@ -67,7 +54,7 @@ func SessionSelector(uname, username, cluster, group string) string {
 }
 
 // Get all stored GetClusterGroupAccess
-func (c ResourceManager) GetAllBreakglassSessions(ctx context.Context) ([]telekomv1alpha1.BreakglassSession, error) {
+func (c SessionManager) GetAllBreakglassSessions(ctx context.Context) ([]telekomv1alpha1.BreakglassSession, error) {
 	cgal := v1alpha1.BreakglassSessionList{}
 	if err := c.List(ctx, &cgal); err != nil {
 		return nil, errors.Wrap(err, "failed to get BreakglassSessionList")
@@ -77,7 +64,7 @@ func (c ResourceManager) GetAllBreakglassSessions(ctx context.Context) ([]teleko
 }
 
 // Get all stored GetClusterGroupAccess
-func (c ResourceManager) GetBreakglassSessionByName(ctx context.Context, name string) (telekomv1alpha1.BreakglassSession, error) {
+func (c SessionManager) GetBreakglassSessionByName(ctx context.Context, name string) (telekomv1alpha1.BreakglassSession, error) {
 	bs := v1alpha1.BreakglassSession{}
 	if err := c.Get(ctx, client.ObjectKey{Name: name}, &bs); err != nil {
 		return bs, errors.Wrap(err, "failed to get BreakglassSession by name")
@@ -87,7 +74,7 @@ func (c ResourceManager) GetBreakglassSessionByName(ctx context.Context, name st
 }
 
 // Get GetClusterGroupAccess by cluster name.
-func (c ResourceManager) GetClusterUserBreakglassSessions(ctx context.Context,
+func (c SessionManager) GetClusterUserBreakglassSessions(ctx context.Context,
 	cluster string,
 	user string,
 ) ([]telekomv1alpha1.BreakglassSession, error) {
@@ -98,7 +85,7 @@ func (c ResourceManager) GetClusterUserBreakglassSessions(ctx context.Context,
 }
 
 // GetBreakglassSessions with custom field selector string.
-func (c ResourceManager) GetBreakglassSessionsWithSelectorString(ctx context.Context,
+func (c SessionManager) GetBreakglassSessionsWithSelectorString(ctx context.Context,
 	selectorString string,
 ) ([]telekomv1alpha1.BreakglassSession, error) {
 	bsl := v1alpha1.BreakglassSessionList{}
@@ -116,7 +103,7 @@ func (c ResourceManager) GetBreakglassSessionsWithSelectorString(ctx context.Con
 }
 
 // GetBreakglassSessions with custom field selector.
-func (c ResourceManager) GetBreakglassSessionsWithSelector(ctx context.Context,
+func (c SessionManager) GetBreakglassSessionsWithSelector(ctx context.Context,
 	fs fields.Selector,
 ) ([]telekomv1alpha1.BreakglassSession, error) {
 	bsl := v1alpha1.BreakglassSessionList{}
@@ -129,7 +116,7 @@ func (c ResourceManager) GetBreakglassSessionsWithSelector(ctx context.Context,
 }
 
 // Add new breakglass session.
-func (c ResourceManager) AddBreakglassSession(ctx context.Context, bs telekomv1alpha1.BreakglassSession) error {
+func (c SessionManager) AddBreakglassSession(ctx context.Context, bs telekomv1alpha1.BreakglassSession) error {
 	c.writeMutex.Lock()
 	defer c.writeMutex.Unlock()
 	if err := c.Create(ctx, &bs); err != nil {
@@ -140,7 +127,7 @@ func (c ResourceManager) AddBreakglassSession(ctx context.Context, bs telekomv1a
 }
 
 // Update breakglass session.
-func (c ResourceManager) UpdateBreakglassSession(ctx context.Context, bs telekomv1alpha1.BreakglassSession) error {
+func (c SessionManager) UpdateBreakglassSession(ctx context.Context, bs telekomv1alpha1.BreakglassSession) error {
 	c.writeMutex.Lock()
 	defer c.writeMutex.Unlock()
 	if err := c.Update(ctx, &bs); err != nil {
@@ -150,7 +137,7 @@ func (c ResourceManager) UpdateBreakglassSession(ctx context.Context, bs telekom
 	return nil
 }
 
-func (c ResourceManager) UpdateBreakglassSessionStatus(ctx context.Context, bs telekomv1alpha1.BreakglassSession) error {
+func (c SessionManager) UpdateBreakglassSessionStatus(ctx context.Context, bs telekomv1alpha1.BreakglassSession) error {
 	c.writeMutex.Lock()
 	defer c.writeMutex.Unlock()
 	if err := c.Status().Update(ctx, &bs); err != nil {

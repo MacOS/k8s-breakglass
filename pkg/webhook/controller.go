@@ -9,8 +9,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/pkg/errors"
+	"gitlab.devops.telekom.de/schiff/engine/go-breakglass.git/pkg/breakglass"
 	"gitlab.devops.telekom.de/schiff/engine/go-breakglass.git/pkg/config"
-	"gitlab.devops.telekom.de/schiff/engine/go-breakglass.git/pkg/session"
 	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/kubernetes/pkg/apis/authorization"
@@ -28,9 +28,9 @@ type SubjectAccessReviewResponse struct {
 }
 
 type WebhookController struct {
-	log     *zap.SugaredLogger
-	config  config.Config
-	manager *session.ResourceManager
+	log        *zap.SugaredLogger
+	config     config.Config
+	sesManager *breakglass.SessionManager
 }
 
 func (WebhookController) BasePath() string {
@@ -69,7 +69,7 @@ func (wc *WebhookController) handleAuthorize(c *gin.Context) {
 	// NOTE: If we want to know specific group that allowed user to perform the operation we would
 	// need to iterate over groups (sessions) and note the first that is ok. Then we could update its
 	// last used parameters and idle value.
-	can, err := session.CanUserDo(sar, groups)
+	can, err := breakglass.CanUserDo(sar, groups)
 	if err != nil {
 		log.Println("error while checking RBAC permissions", err)
 		c.Status(http.StatusInternalServerError)
@@ -110,7 +110,7 @@ func (wc *WebhookController) getUserGroupsForCluster(ctx context.Context,
 			"status.idleTimeoutReached": "false",
 		},
 	)
-	sessions, err := wc.manager.GetBreakglassSessionsWithSelector(ctx, selector)
+	sessions, err := wc.sesManager.GetBreakglassSessionsWithSelector(ctx, selector)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to get ClusterGroupAccess")
 	}
@@ -123,11 +123,11 @@ func (wc *WebhookController) getUserGroupsForCluster(ctx context.Context,
 	return groups, nil
 }
 
-func NewWebhookController(log *zap.SugaredLogger, cfg config.Config, manager *session.ResourceManager) *WebhookController {
+func NewWebhookController(log *zap.SugaredLogger, cfg config.Config, manager *breakglass.SessionManager) *WebhookController {
 	controller := &WebhookController{
-		log:     log,
-		config:  cfg,
-		manager: manager,
+		log:        log,
+		config:     cfg,
+		sesManager: manager,
 	}
 
 	return controller
