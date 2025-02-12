@@ -1,4 +1,4 @@
-package breakglass
+package session
 
 import (
 	"errors"

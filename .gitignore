@@ -4,6 +4,4 @@ bin/
 
 breakglass.yaml
 config.yaml
-access_review.db
-access_review.db-shm
-access_review.db-wal
+Session.vim

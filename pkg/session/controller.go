@@ -1,4 +1,4 @@
-package breakglass
+package session
 
 import (
 	"context"
@@ -17,8 +17,6 @@ import (
 	"go.uber.org/zap"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
-	"k8s.io/apimachinery/pkg/labels"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 const (
@@ -283,44 +281,6 @@ func (wc BreakglassSessionController) handleGetGroups(c *gin.Context) {
 	c.JSON(http.StatusOK, groupList)
 }
 
-// Marks sessions that are expired and removes those that should no longer be stored.
-func (wc BreakglassSessionController) markClenaupExpiredSession(ctx context.Context) {
-	sessions, err := wc.manager.GetAllBreakglassSessions(ctx)
-	if err != nil {
-		wc.log.Error("error listing breakglass sessions for cleanup", zap.Error(err))
-		return
-	}
-
-	now := time.Now()
-	deletionLabel := map[string]string{"deletion": "true"}
-	for _, ses := range sessions {
-		if now.After(ses.Status.StoreUntil.Time) {
-			ses.SetLabels(deletionLabel)
-			if err := wc.manager.UpdateBreakglassSession(ctx, ses); err != nil {
-				wc.log.Error("error failed to set label", zap.Error(err))
-			}
-		} else if now.After(ses.Status.ValidUntil.Time) {
-			ses.Status.Expired = true
-			if err := wc.manager.UpdateBreakglassSessionStatus(ctx, ses); err != nil {
-				wc.log.Error("error while updating breakglass session", zap.Error(err))
-				continue
-			}
-		}
-	}
-
-	if err := wc.manager.DeleteAllOf(ctx,
-		&telekomv1alpha1.BreakglassSession{},
-		&client.DeleteAllOfOptions{
-			ListOptions: client.ListOptions{
-				LabelSelector: labels.SelectorFromSet(deletionLabel),
-			},
-		}); err != nil {
-		wc.log.Error("error while deleting expired breakglass sessions", zap.Error(err))
-	}
-
-	time.Sleep(WeekDuration)
-}
-
 func (wc BreakglassSessionController) getApprovers() []string {
 	return wc.config.ClusterAccess.Approvers
 }
@@ -351,8 +311,6 @@ func NewBreakglassSessionController(log *zap.SugaredLogger,
 		identityProvider: ip,
 		mail:             mail.NewSender(cfg),
 	}
-
-	go controller.markClenaupExpiredSession(context.Background())
 
 	return controller
 }

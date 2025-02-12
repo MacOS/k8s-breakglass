@@ -1,4 +1,4 @@
-package breakglass
+package session
 
 import (
 	"context"
@@ -34,7 +34,7 @@ func init() {
 	// +kubebuilder:scaffold:scheme
 }
 
-func NewCRDManager() (ResourceManager, error) {
+func NewResourceManager() (ResourceManager, error) {
 	cfg := config.GetConfigOrDie()
 	c, err := client.New(cfg, client.Options{
 		Scheme: scheme,

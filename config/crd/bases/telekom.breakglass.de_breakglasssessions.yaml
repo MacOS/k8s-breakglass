@@ -92,8 +92,9 @@ spec:
                 format: date-time
                 type: string
               expired:
-                description: Defines if session is expired by either being denied
-                  by approvers or reached expiration timeout.
+                description: |-
+                  Defines if session is expired by either being denied by approvers
+                  or reached expiration timeout.
                 type: boolean
               idleTimeoutReached:
                 description: |-

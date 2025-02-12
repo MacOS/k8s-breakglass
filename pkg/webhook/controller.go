@@ -9,8 +9,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/pkg/errors"
-	breakglass "gitlab.devops.telekom.de/schiff/engine/go-breakglass.git/pkg/breakglass"
 	"gitlab.devops.telekom.de/schiff/engine/go-breakglass.git/pkg/config"
+	"gitlab.devops.telekom.de/schiff/engine/go-breakglass.git/pkg/session"
 	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/kubernetes/pkg/apis/authorization"
@@ -30,7 +30,7 @@ type SubjectAccessReviewResponse struct {
 type WebhookController struct {
 	log     *zap.SugaredLogger
 	config  config.Config
-	manager *breakglass.ResourceManager
+	manager *session.ResourceManager
 }
 
 func (WebhookController) BasePath() string {
@@ -69,7 +69,7 @@ func (wc *WebhookController) handleAuthorize(c *gin.Context) {
 	// NOTE: If we want to know specific group that allowed user to perform the operation we would
 	// need to iterate over groups (sessions) and note the first that is ok. Then we could update its
 	// last used parameters and idle value.
-	can, err := breakglass.CanUserDo(sar, groups)
+	can, err := session.CanUserDo(sar, groups)
 	if err != nil {
 		log.Println("error while checking RBAC permissions", err)
 		c.Status(http.StatusInternalServerError)
@@ -123,7 +123,7 @@ func (wc *WebhookController) getUserGroupsForCluster(ctx context.Context,
 	return groups, nil
 }
 
-func NewWebhookController(log *zap.SugaredLogger, cfg config.Config, manager *breakglass.ResourceManager) *WebhookController {
+func NewWebhookController(log *zap.SugaredLogger, cfg config.Config, manager *session.ResourceManager) *WebhookController {
 	controller := &WebhookController{
 		log:     log,
 		config:  cfg,
