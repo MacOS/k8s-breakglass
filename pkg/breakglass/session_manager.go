@@ -10,6 +10,7 @@ import (
 	"gitlab.devops.telekom.de/schiff/engine/go-breakglass.git/api/v1alpha1"
 	telekomv1alpha1 "gitlab.devops.telekom.de/schiff/engine/go-breakglass.git/api/v1alpha1"
 	"k8s.io/apimachinery/pkg/fields"
+	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 )
@@ -21,13 +22,26 @@ type SessionManager struct {
 
 var ErrAccessNotFound = errors.New("access not found")
 
-func NewSessionManager() (SessionManager, error) {
-	cfg := config.GetConfigOrDie()
+func NewSessionManager(contextName string) (sm SessionManager, err error) {
+	var cfg *rest.Config
+
+	if contextName != "" {
+		cfg, err = config.GetConfigWithContext(contextName)
+		if err != nil {
+			return sm, errors.Wrap(err, fmt.Sprintf("failed to get config with context %q", contextName))
+		}
+	} else {
+		cfg, err = config.GetConfig()
+		if err != nil {
+			return sm, errors.Wrap(err, "failed to get default config")
+		}
+	}
+
 	c, err := client.New(cfg, client.Options{
 		Scheme: scheme,
 	})
 	if err != nil {
-		return SessionManager{}, errors.Wrap(err, "failed to create new client")
+		return sm, errors.Wrap(err, "failed to create new client")
 	}
 
 	return SessionManager{c, new(sync.Mutex)}, nil

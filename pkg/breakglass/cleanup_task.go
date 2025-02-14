@@ -40,7 +40,7 @@ func (routine CleanupRoutine) markClenaupExpiredSession(ctx context.Context) {
 			if err := routine.Manager.UpdateBreakglassSession(ctx, ses); err != nil {
 				routine.Log.Error("error failed to set label", zap.Error(err))
 			}
-		} else if now.After(ses.Status.ValidUntil.Time) {
+		} else if !ses.Status.ValidUntil.Time.IsZero() && now.After(ses.Status.ValidUntil.Time) {
 			ses.Status.Expired = true
 			if err := routine.Manager.UpdateBreakglassSessionStatus(ctx, ses); err != nil {
 				routine.Log.Error("error while updating breakglass session", zap.Error(err))

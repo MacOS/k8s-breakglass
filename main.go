@@ -38,10 +38,8 @@ func main() {
 	auth := api.NewAuth(log, config)
 	server := api.NewServer(log.Desugar(), config, debug, auth)
 
-	// TODO: I might want to make manager an interface that is passed to webhook controller
-	// so that we can switch between CRDManager and DBManager that uses sqlite
-
-	sessionManager, err := breakglass.NewSessionManager()
+	// TODO: This should be configurable in config
+	sessionManager, err := breakglass.NewSessionManager("")
 	if err != nil {
 		log.Fatalf("Error creating access review CRD manager: %v", err)
 		return
