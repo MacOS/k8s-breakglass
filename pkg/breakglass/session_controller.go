@@ -93,7 +93,7 @@ func (wc BreakglassSessionController) handleRequestBreakglassSession(c *gin.Cont
 		return
 	}
 
-	rbacGroups, err := GetUserGroups(request.Username)
+	rbacGroups, err := GetUserGroups(request.Username, request.Clustername)
 	if err != nil {
 		wc.log.Error("Error getting user rbac groups for cluster", zap.Error(err))
 		c.JSON(http.StatusInternalServerError, "failed to extract cluster group access information")

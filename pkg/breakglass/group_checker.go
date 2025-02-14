@@ -81,8 +81,8 @@ func CanUserDo(sar authorization.SubjectAccessReview, groups []string) (bool, er
 
 // Returns users groups assigned in cluster by duplicating kubectl auth whoami logic.
 // FIXME: This call has to be based on cluster name to get proper kubeconfig context
-func GetUserGroups(username string) ([]string, error) {
-	cfg, err := config.GetConfig()
+func GetUserGroups(username, clustername string) ([]string, error) {
+	cfg, err := config.GetConfigWithContext(clustername)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to get config")
 	}
