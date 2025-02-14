@@ -27,7 +27,7 @@ const state = reactive({
   search: "",
 });
 
-async function getBreakglasses() {
+async function getActiveBreakglasses() {
   state.loading = true;
   await service.getSessionStatus({
     uname: resourceName.value,
@@ -38,7 +38,11 @@ async function getBreakglasses() {
     switch (response.status) {
       case 200:
         state.getBreakglassesMsg = ""
-        state.breakglasses = response.data
+        state.breakglasses = response.data.filter(
+          (breakglass: any) =>
+            (breakglass.status.expired == false &&
+            breakglass.status.idleTimeoutReached == false));
+        console.log(response.data)
         break
     }
   }).catch(errResponse => {
@@ -50,7 +54,7 @@ async function getBreakglasses() {
   state.loading = false;
 }
 onMounted(async () => {
-  getBreakglasses()
+  getActiveBreakglasses()
   console.log(state.breakglasses);
 });
 
@@ -65,7 +69,7 @@ function onAccept(bg: any) {
   service.approveReview({ uname: bg.metadata.name }).then(response => {
     switch (response.status) {
       case 200:
-        getBreakglasses()
+        getActiveBreakglasses()
         break
     }
   }).catch(errResponse => {
@@ -80,7 +84,7 @@ async function onReject(bg: any) {
   service.rejectReview({ uname: bg.metadata.name }).then(response => {
     switch (response.status) {
       case 200:
-        getBreakglasses()
+        getActiveBreakglasses()
         break
     }
   }).catch(errResponse => {
@@ -121,5 +125,4 @@ async function onReject(bg: any) {
   flex-wrap: wrap;
   justify-content: center;
 }
-
 </style>
