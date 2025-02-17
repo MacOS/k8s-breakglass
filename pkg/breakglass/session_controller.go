@@ -27,12 +27,13 @@ const (
 var ErrSessionNotFound error = errors.New("session not found")
 
 type BreakglassSessionController struct {
-	log              *zap.SugaredLogger
-	config           config.Config
-	manager          *SessionManager
-	middleware       gin.HandlerFunc
-	identityProvider IdentityProvider
-	mail             mail.Sender
+	log               *zap.SugaredLogger
+	config            config.Config
+	sessionManager    *SessionManager
+	escalationManager *EscalationManager
+	middleware        gin.HandlerFunc
+	identityProvider  IdentityProvider
+	mail              mail.Sender
 }
 
 func (BreakglassSessionController) BasePath() string {
@@ -63,7 +64,7 @@ func (wc BreakglassSessionController) handleGetBreakglassSessionStatus(c *gin.Co
 		return
 	}
 
-	sessions, err := wc.manager.GetBreakglassSessionsWithSelectorString(c.Request.Context(),
+	sessions, err := wc.sessionManager.GetBreakglassSessionsWithSelectorString(c.Request.Context(),
 		SessionSelector(uname, user, cluster, group))
 	if err != nil {
 		wc.log.Error("Error getting breakglass sessions", zap.Error(err))
@@ -101,6 +102,8 @@ func (wc BreakglassSessionController) handleRequestBreakglassSession(c *gin.Cont
 	}
 	// TODO: based on assigned groups we need to prepare possible transition list
 	fmt.Println("rbac groups:=", rbacGroups)
+	escalationGroups, err := wc.escalationManager.GetUserEscalationGroups(ctx, request.Username, request.Clustername)
+	fmt.Println("escalation groups:=", escalationGroups, err)
 
 	ses, err := wc.getBreakglassSession(ctx,
 		request.Username, request.Clustername, request.Clustergroup)
@@ -131,7 +134,7 @@ func (wc BreakglassSessionController) handleRequestBreakglassSession(c *gin.Cont
 		approvers)
 
 	bs.GenerateName = fmt.Sprintf("%s-%s-%s-", request.Clustername, request.Username, request.Clustergroup)
-	if err := wc.manager.AddBreakglassSession(ctx, bs); err != nil {
+	if err := wc.sessionManager.AddBreakglassSession(ctx, bs); err != nil {
 		wc.log.Error("error while adding breakglass session", zap.Error(err))
 		c.Status(http.StatusInternalServerError)
 		return
@@ -158,7 +161,7 @@ func (wc BreakglassSessionController) handleRequestBreakglassSession(c *gin.Cont
 		bs.Status.ApprovedAt = metav1.Now()
 	}
 
-	if err := wc.manager.UpdateBreakglassSessionStatus(ctx, bs); err != nil {
+	if err := wc.sessionManager.UpdateBreakglassSessionStatus(ctx, bs); err != nil {
 		wc.log.Error("error while updating breakglass session", zap.Error(err))
 		c.Status(http.StatusInternalServerError)
 		return
@@ -179,7 +182,7 @@ func (wc BreakglassSessionController) updateStatus(c *gin.Context, statusFn func
 	}
 	uname := c.Param("uname")
 
-	bs, err := wc.manager.GetBreakglassSessionByName(c.Request.Context(), uname)
+	bs, err := wc.sessionManager.GetBreakglassSessionByName(c.Request.Context(), uname)
 	if err != nil {
 		wc.log.Error("error while getting breakglass session", zap.Error(err))
 		c.Status(http.StatusInternalServerError)
@@ -188,7 +191,7 @@ func (wc BreakglassSessionController) updateStatus(c *gin.Context, statusFn func
 
 	statusFn(&bs)
 
-	if err := wc.manager.UpdateBreakglassSessionStatus(c.Request.Context(), bs); err != nil {
+	if err := wc.sessionManager.UpdateBreakglassSessionStatus(c.Request.Context(), bs); err != nil {
 		wc.log.Error("error while updating breakglass session", zap.Error(err))
 		c.Status(http.StatusInternalServerError)
 		return
@@ -209,7 +212,7 @@ func (wc BreakglassSessionController) getBreakglassSession(ctx context.Context,
 			"spec.group":    group,
 		},
 	)
-	sessions, err := wc.manager.GetBreakglassSessionsWithSelector(ctx, selector)
+	sessions, err := wc.sessionManager.GetBreakglassSessionsWithSelector(ctx, selector)
 	if err != nil {
 		return telekomv1alpha1.BreakglassSession{}, errors.Wrap(err, "failed to list sessions")
 	}
@@ -268,7 +271,7 @@ func (wc BreakglassSessionController) sendOnRequestEmail(bs v1alpha1.BreakglassS
 }
 
 func (wc BreakglassSessionController) handleListClusters(c *gin.Context) {
-	sessions, err := wc.manager.GetAllBreakglassSessions(c.Request.Context())
+	sessions, err := wc.sessionManager.GetAllBreakglassSessions(c.Request.Context())
 	if err != nil {
 		wc.log.Error("Error getting access reviews", zap.Error(err))
 		c.JSON(http.StatusInternalServerError, "Failed to extract cluster group access information")
@@ -306,19 +309,21 @@ func (wc BreakglassSessionController) isPerformedByBreakglassAdmin(c *gin.Contex
 
 func NewBreakglassSessionController(log *zap.SugaredLogger,
 	cfg config.Config,
-	manager *SessionManager,
+	sessionManager *SessionManager,
+	escalationManager *EscalationManager,
 	middleware gin.HandlerFunc,
 ) *BreakglassSessionController {
 	// TODO: Probably a switch based on config
 	ip := KeycloakIdentityProvider{}
 
 	controller := &BreakglassSessionController{
-		log:              log,
-		config:           cfg,
-		manager:          manager,
-		middleware:       middleware,
-		identityProvider: ip,
-		mail:             mail.NewSender(cfg),
+		log:               log,
+		config:            cfg,
+		sessionManager:    sessionManager,
+		escalationManager: escalationManager,
+		middleware:        middleware,
+		identityProvider:  ip,
+		mail:              mail.NewSender(cfg),
 	}
 
 	return controller

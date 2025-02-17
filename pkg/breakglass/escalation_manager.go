@@ -3,7 +3,6 @@ package breakglass
 import (
 	"context"
 	"fmt"
-	"sync"
 
 	"github.com/pkg/errors"
 	"gitlab.devops.telekom.de/schiff/engine/go-breakglass.git/api/v1alpha1"
@@ -15,40 +14,67 @@ import (
 
 type EscalationManager struct {
 	client.Client
-	writeMutex *sync.Mutex
 }
 
 // Get all stored GetClusterGroupAccess
 func (em EscalationManager) GetAllBreakglassEscalations(ctx context.Context) ([]telekomv1alpha1.BreakglassEscalation, error) {
 	escal := v1alpha1.BreakglassEscalationList{}
 	if err := em.List(ctx, &escal); err != nil {
-		return nil, errors.Wrap(err, "failed to get BreakglassSessionList")
+		return nil, errors.Wrap(err, "failed to get BreakglassEscalationList")
 	}
 
 	return escal.Items, nil
 }
 
-// Get all stored BreakglassEscalations
-func (c EscalationManager) GetEscalationsWith(ctx context.Context) ([]telekomv1alpha1.BreakglassEscalation, error) {
+// GetBreakglassEscalationsWithSelector with custom field selector.
+func (em EscalationManager) GetBreakglassEscalationsWithSelector(ctx context.Context,
+	fs fields.Selector,
+) ([]telekomv1alpha1.BreakglassEscalation, error) {
 	ess := v1alpha1.BreakglassEscalationList{}
-	if err := c.List(ctx, &ess); err != nil {
-		return nil, errors.Wrap(err, "failed to get BreakglassSessionList")
+
+	if err := em.List(ctx, &ess, &client.ListOptions{FieldSelector: fs}); err != nil {
+		return nil, errors.Wrapf(err, "failed to list BreakglassEscalation with selector")
 	}
 
 	return ess.Items, nil
 }
 
-// GetBreakglassEscalationsWithSelector with custom field selector.
-func (em EscalationManager) GetBreakglassEscalationsWithSelector(ctx context.Context,
-	fs fields.Selector,
-) ([]telekomv1alpha1.BreakglassSession, error) {
-	ess := v1alpha1.BreakglassSessionList{}
-
-	if err := em.List(ctx, &ess, &client.ListOptions{FieldSelector: fs}); err != nil {
-		return nil, errors.Wrapf(err, "failed to list BreakglassSessionList with selector")
+func (em EscalationManager) GetUserEscalationGroups(ctx context.Context, username, clustername string) ([]string, error) {
+	escalations, err := em.GetBreakglassEscalationsWithSelector(ctx, fields.SelectorFromSet(fields.Set{
+		"spec.cluster":  clustername,
+		"spec.username": username,
+	}))
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to breakglass escalations")
 	}
 
-	return ess.Items, nil
+	userGroups, err := GetUserGroups(ctx, username, clustername)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to get user groups")
+	}
+	groups := make(map[string]any, len(userGroups))
+	for _, group := range userGroups {
+		groups[group] = struct{}{}
+	}
+
+	escalationGroups := make([]string, 0, len(escalations))
+	for _, esc := range escalations {
+		if intersects(groups, esc.Spec.AllowedGroups) {
+			escalationGroups = append(escalationGroups, esc.Spec.EscalatedGroup)
+		}
+	}
+
+	return escalationGroups, nil
+}
+
+func intersects(amap map[string]any, b []string) bool {
+	for _, v := range b {
+		if _, has := amap[v]; has {
+			return true
+		}
+	}
+
+	return false
 }
 
 func NewEscalationManager(contextName string) (EscalationManager, error) {
@@ -64,5 +90,5 @@ func NewEscalationManager(contextName string) (EscalationManager, error) {
 		return EscalationManager{}, errors.Wrap(err, "failed to create new client")
 	}
 
-	return EscalationManager{c, new(sync.Mutex)}, nil
+	return EscalationManager{c}, nil
 }

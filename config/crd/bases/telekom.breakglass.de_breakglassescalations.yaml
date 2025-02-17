@@ -58,11 +58,14 @@ spec:
                 type: string
               escalatedGroup:
                 type: string
+              username:
+                type: string
             required:
             - allowedGroups
             - approvers
             - cluster
             - escalatedGroup
+            - username
             type: object
           status:
             description: BreakglassEscalationStatus defines the observed state of
@@ -71,6 +74,10 @@ spec:
         required:
         - spec
         type: object
+    selectableFields:
+    - jsonPath: .spec.cluster
+    - jsonPath: .spec.username
+    - jsonPath: .spec.escalatedGroup
     served: true
     storage: true
     subresources:

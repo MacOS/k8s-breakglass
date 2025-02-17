@@ -24,6 +24,8 @@ type (
 		// +required
 		Cluster string `json:"cluster,omitempty"`
 		// +required
+		Username string `json:"username,omitempty"`
+		// +required
 		AllowedGroups []string `json:"allowedGroups,omitempty"`
 		// +required
 		EscalatedGroup string `json:"escalatedGroup,omitempty"`
@@ -44,6 +46,9 @@ type (
 // +kubebuilder:resource:scope=Cluster
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
+// +kubebuilder:selectablefield:JSONPath=`.spec.cluster`
+// +kubebuilder:selectablefield:JSONPath=`.spec.username`
+// +kubebuilder:selectablefield:JSONPath=`.spec.escalatedGroup`
 
 type BreakglassEscalation struct {
 	metav1.TypeMeta   `json:",inline"`

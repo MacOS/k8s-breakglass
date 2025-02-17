@@ -38,15 +38,20 @@ func main() {
 	auth := api.NewAuth(log, config)
 	server := api.NewServer(log.Desugar(), config, debug, auth)
 
-	// TODO: This should be configurable in config
+	// TODO: This kubeconfig context should be configurable in config yaml
 	sessionManager, err := breakglass.NewSessionManager("")
 	if err != nil {
-		log.Fatalf("Error creating access review CRD manager: %v", err)
+		log.Fatalf("Error creating breakglass session manager: %v", err)
+		return
+	}
+	escalationManager, err := breakglass.NewEscalationManager("")
+	if err != nil {
+		log.Fatalf("Error creating breakglass escalation manager: %v", err)
 		return
 	}
 
 	err = server.RegisterAll([]api.APIController{
-		breakglass.NewBreakglassSessionController(log, config, &sessionManager, auth.Middleware()),
+		breakglass.NewBreakglassSessionController(log, config, &sessionManager, &escalationManager, auth.Middleware()),
 		webhook.NewWebhookController(log, config, &sessionManager),
 	})
 	if err != nil {
