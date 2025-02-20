@@ -63,14 +63,14 @@ func CanGroupsDo(ctx context.Context,
 }
 
 // Returns users groups assigned in cluster by duplicating kubectl auth whoami logic.
-func GetUserGroups(ctx context.Context, username, clustername string) ([]string, error) {
-	cfg, err := config.GetConfigWithContext(clustername)
+func GetUserGroups(ctx context.Context, cug ClusterUserGroup) ([]string, error) {
+	cfg, err := config.GetConfigWithContext(cug.Clustername)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to get config")
 	}
 
 	cfg.Impersonate = rest.ImpersonationConfig{
-		UserName: username,
+		UserName: cug.Username,
 	}
 
 	client, err := kubernetes.NewForConfig(cfg)

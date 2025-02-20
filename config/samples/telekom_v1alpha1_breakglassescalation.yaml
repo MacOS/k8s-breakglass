@@ -1,0 +1,12 @@
+apiVersion: telekom.breakglass.de/v1alpha1
+kind: BreakglassEscalation 
+metadata:
+  labels:
+  name: kind-sample
+spec:
+  cluster: kind
+  username: tester
+  allowedGroups: ["system:authenticated"]
+  escalatedGroup: "breakglass-create-all"
+  approvers:
+    users: ["admin@mail.com"]

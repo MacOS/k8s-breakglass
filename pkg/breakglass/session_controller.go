@@ -26,6 +26,8 @@ const (
 
 var ErrSessionNotFound error = errors.New("session not found")
 
+type BreakglassSessionRequest ClusterUserGroup
+
 type BreakglassSessionController struct {
 	log               *zap.SugaredLogger
 	config            config.Config
@@ -59,11 +61,6 @@ func (wc BreakglassSessionController) handleGetBreakglassSessionStatus(c *gin.Co
 	group := c.Query("groupname")
 	uname := c.Query("uname")
 
-	if !wc.isPerformedByBreakglassAdmin(c) {
-		c.Status(http.StatusUnauthorized)
-		return
-	}
-
 	sessions, err := wc.sessionManager.GetBreakglassSessionsWithSelectorString(c.Request.Context(),
 		SessionSelector(uname, user, cluster, group))
 	if err != nil {
@@ -72,16 +69,16 @@ func (wc BreakglassSessionController) handleGetBreakglassSessionStatus(c *gin.Co
 		return
 	}
 
+	// TODO: We need to filter session based on requestor
+	if len(sessions) != 0 && !wc.isSessionApprover(c, sessions[0]) {
+		c.Status(http.StatusUnauthorized)
+		return
+	}
+
 	c.JSON(http.StatusOK, sessions)
 }
 
 func (wc BreakglassSessionController) handleRequestBreakglassSession(c *gin.Context) {
-	type BreakglassSessionRequest struct {
-		Clustername  string `json:"clustername,omitempty"`
-		Username     string `json:"username,omitempty"`
-		Clustergroup string `json:"clustergroup,omitempty"`
-	}
-
 	request := BreakglassSessionRequest{}
 	err := json.NewDecoder(c.Request.Body).Decode(&request)
 	if err != nil {
@@ -89,28 +86,46 @@ func (wc BreakglassSessionController) handleRequestBreakglassSession(c *gin.Cont
 		c.Status(http.StatusUnprocessableEntity)
 		return
 	}
-	if request.Clustername == "" || request.Username == "" || request.Clustergroup == "" {
+	if request.Clustername == "" || request.Username == "" || request.Groupname == "" {
 		c.JSON(http.StatusUnprocessableEntity, "missing input request data")
 		return
 	}
 
 	ctx := c.Request.Context()
-	rbacGroups, err := GetUserGroups(ctx, request.Username, request.Clustername)
+
+	escalations, err := wc.escalationManager.GetClusterUserBreakglassEscalations(ctx, ClusterUserGroup(request))
 	if err != nil {
-		wc.log.Error("Error getting user rbac groups for cluster", zap.Error(err))
-		c.JSON(http.StatusInternalServerError, "failed to extract cluster group access information")
+		wc.log.Error("Error getting breakglass escalations", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, "failed to extract cluster breakglass escalation information")
+
 	}
-	// TODO: based on assigned groups we need to prepare possible transition list
-	fmt.Println("rbac groups:=", rbacGroups)
-	escalationGroups, err := wc.escalationManager.GetUserEscalationGroups(ctx, request.Username, request.Clustername)
-	fmt.Println("escalation groups:=", escalationGroups, err)
+
+	possibleEscals, err := FilterForUserPossibleEscalations(ctx, escalations, ClusterUserGroup(request))
+	if err != nil {
+		wc.log.Error("Error getting breakglass escalation groups", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, "failed to extract cluster group escalation information")
+		return
+	}
+	possible := []string{}
+	approvers := []string{}
+	approverGroups := []string{}
+	for _, p := range possibleEscals {
+		possible = append(possible, p.Spec.EscalatedGroup)
+		approvers = append(approvers, p.Spec.Approvers.Users...)
+		approverGroups = append(approverGroups, p.Spec.Approvers.Groups...)
+	}
+
+	if !slices.Contains(possible, request.Groupname) {
+		c.JSON(http.StatusUnauthorized, "user unauthorized for group")
+		return
+	}
 
 	ses, err := wc.getBreakglassSession(ctx,
-		request.Username, request.Clustername, request.Clustergroup)
+		request.Username, request.Clustername, request.Groupname)
 	if err != nil {
 		if !errors.Is(err, ErrSessionNotFound) {
 			wc.log.Error("Error getting breakglass sessions", zap.Error(err))
-			c.JSON(http.StatusInternalServerError, "failed to extract cluster group access information")
+			c.JSON(http.StatusInternalServerError, "failed to extract breakglass session information")
 			return
 		}
 	} else if !ses.Status.Expired {
@@ -125,22 +140,19 @@ func (wc BreakglassSessionController) handleRequestBreakglassSession(c *gin.Cont
 	}
 	username := wc.identityProvider.GetUsername(c)
 
-	approvers := wc.getApprovers()
-
 	bs := v1alpha1.NewBreakglassSession(
 		request.Clustername,
 		request.Username,
-		request.Clustergroup,
-		approvers)
+		request.Groupname)
 
-	bs.GenerateName = fmt.Sprintf("%s-%s-%s-", request.Clustername, request.Username, request.Clustergroup)
+	bs.GenerateName = fmt.Sprintf("%s-%s-%s-", request.Clustername, request.Username, request.Groupname)
 	if err := wc.sessionManager.AddBreakglassSession(ctx, bs); err != nil {
 		wc.log.Error("error while adding breakglass session", zap.Error(err))
 		c.Status(http.StatusInternalServerError)
 		return
 	}
 
-	bs, err = wc.getBreakglassSession(ctx, request.Username, request.Clustername, request.Clustergroup)
+	bs, err = wc.getBreakglassSession(ctx, request.Username, request.Clustername, request.Groupname)
 	if err != nil && !errors.Is(err, ErrSessionNotFound) {
 		wc.log.Error("error while getting breakglass session", zap.Error(err))
 		c.Status(http.StatusInternalServerError)
@@ -155,19 +167,13 @@ func (wc BreakglassSessionController) handleRequestBreakglassSession(c *gin.Cont
 		StoreUntil:         metav1.NewTime(time.Now().Add(MonthDuration)),
 	}
 
-	// If user is approver he can automatically create approved request for himself or some user
-	if slices.Contains(bs.Spec.Approvers, useremail) {
-		bs.Status.Approved = true
-		bs.Status.ApprovedAt = metav1.Now()
-	}
-
 	if err := wc.sessionManager.UpdateBreakglassSessionStatus(ctx, bs); err != nil {
 		wc.log.Error("error while updating breakglass session", zap.Error(err))
 		c.Status(http.StatusInternalServerError)
 		return
 	}
 
-	if err := wc.sendOnRequestEmail(bs, useremail, username); err != nil {
+	if err := wc.sendOnRequestEmail(bs, useremail, username, approvers); err != nil {
 		wc.log.Error("Error while sending breakglass session request notification email", zap.Error(err))
 		c.Status(http.StatusInternalServerError)
 	}
@@ -176,16 +182,17 @@ func (wc BreakglassSessionController) handleRequestBreakglassSession(c *gin.Cont
 }
 
 func (wc BreakglassSessionController) updateStatus(c *gin.Context, statusFn func(*telekomv1alpha1.BreakglassSession)) {
-	if !wc.isPerformedByBreakglassAdmin(c) {
-		c.Status(http.StatusUnauthorized)
-		return
-	}
 	uname := c.Param("uname")
 
 	bs, err := wc.sessionManager.GetBreakglassSessionByName(c.Request.Context(), uname)
 	if err != nil {
 		wc.log.Error("error while getting breakglass session", zap.Error(err))
 		c.Status(http.StatusInternalServerError)
+		return
+	}
+
+	if !wc.isSessionApprover(c, bs) {
+		c.Status(http.StatusUnauthorized)
 		return
 	}
 
@@ -240,9 +247,8 @@ func (wc BreakglassSessionController) handleRejectBreakglassSession(c *gin.Conte
 		})
 }
 
-func (wc BreakglassSessionController) sendOnRequestEmail(bs v1alpha1.BreakglassSession, requestEmail, requestUsername string) error {
+func (wc BreakglassSessionController) sendOnRequestEmail(bs v1alpha1.BreakglassSession, requestEmail, requestUsername string, approvers []string) error {
 	subject := fmt.Sprintf("Cluster %q user %q is requesting breakglass group assignment %q", bs.Spec.Cluster, bs.Spec.Username, bs.Spec.Group)
-	approvers := bs.Spec.Approvers
 
 	if bs.Status.Approved {
 		// TODO: In case user is an admin and get instantly approved request we coudl send notification only
@@ -293,18 +299,53 @@ func (wc BreakglassSessionController) handleGetGroups(c *gin.Context) {
 	c.JSON(http.StatusOK, groupList)
 }
 
-func (wc BreakglassSessionController) getApprovers() []string {
-	return wc.config.ClusterAccess.Approvers
+// func (wc BreakglassSessionController) getEscalationGroupsAndApprovers(ctx context.Context,
+// 	cug BreakglassSessionRequest,
+// 	escalations []telekomv1alpha1.BreakglassEscalation,
+// ) ([]string, error) {
+// 	userGroups, err := GetUserGroups(ctx, ClusterUserGroup(cug))
+// 	if err != nil {
+// 		return nil, errors.Wrap(err, "failed to get user groups")
+// 	}
+// 	groups := make(map[string]any, len(userGroups))
+// 	for _, group := range userGroups {
+// 		groups[group] = struct{}{}
+// 	}
+//
+// 	escalationGroups := make([]string, 0, len(escalations))
+// 	for _, esc := range escalations {
+// 		if intersects(groups, esc.Spec.AllowedGroups) {
+// 			escalationGroups = append(escalationGroups, esc.Spec.EscalatedGroup)
+// 		}
+// 	}
+// 	return escalationGroups, nil
+// }
+
+func (wc BreakglassSessionController) getApproversFromEscalations(escalations []telekomv1alpha1.BreakglassEscalation) []string {
+	approvers := []string{}
+	groups := []string{}
+	for _, es := range escalations {
+		approvers = append(approvers, es.Spec.Approvers.Users...)
+		groups = append(groups, es.Spec.Approvers.Groups...)
+	}
+
+	// TODO: based on groups we should extend the approvers with users that belong to given group
+	// there is no such functionality in group_checker.go or overall in system
+	// to be checked if even this could be done via single kubernetes call
+
+	return approvers
 }
 
-func (wc BreakglassSessionController) isPerformedByBreakglassAdmin(c *gin.Context) bool {
-	identity, err := wc.identityProvider.GetEmail(c)
+func (wc BreakglassSessionController) isSessionApprover(c *gin.Context, session telekomv1alpha1.BreakglassSession) bool {
+	// TODO: compare identity with transition data
+	_, err := wc.identityProvider.GetEmail(c)
 	if err != nil {
 		wc.log.Error("Error getting user identity", zap.Error(err))
 		return false
 	}
 
-	return slices.Contains(wc.getApprovers(), identity)
+	// TODO: Simply we need to check if approvers from transition are handling this BreakglassSessionRequest
+	return true
 }
 
 func NewBreakglassSessionController(log *zap.SugaredLogger,

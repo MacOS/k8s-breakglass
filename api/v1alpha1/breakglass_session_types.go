@@ -36,10 +36,6 @@ type BreakglassSessionSpec struct {
 	// +required
 	Group string `json:"group,omitempty"`
 
-	// A list of usernames (or emails) of users that can grant requested session.
-	// +required
-	Approvers []string `json:"approvers,omitempty"`
-
 	// Max time a session can sit idle without being used by user after approved.
 	// +default="1h"
 	IdleTimeout string `json:"idleTimeout,omitempty"`
@@ -123,13 +119,12 @@ func init() {
 	SchemeBuilder.Register(&BreakglassSession{}, &BreakglassSessionList{})
 }
 
-func NewBreakglassSession(cluster, username, group string, approvers []string) BreakglassSession {
+func NewBreakglassSession(cluster, username, group string) BreakglassSession {
 	return BreakglassSession{
 		Spec: BreakglassSessionSpec{
-			Cluster:   cluster,
-			Username:  username,
-			Group:     group,
-			Approvers: approvers,
+			Cluster:  cluster,
+			Username: username,
+			Group:    group,
 		},
 		Status: BreakglassSessionStatus{},
 	}

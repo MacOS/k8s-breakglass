@@ -39,42 +39,23 @@ func (em EscalationManager) GetBreakglassEscalationsWithSelector(ctx context.Con
 	return ess.Items, nil
 }
 
-func (em EscalationManager) GetUserEscalationGroups(ctx context.Context, username, clustername string) ([]string, error) {
-	escalations, err := em.GetBreakglassEscalationsWithSelector(ctx, fields.SelectorFromSet(fields.Set{
-		"spec.cluster":  clustername,
-		"spec.username": username,
+func (em EscalationManager) GetClusterUserBreakglassEscalations(ctx context.Context,
+	cug ClusterUserGroup,
+) ([]telekomv1alpha1.BreakglassEscalation, error) {
+	return em.GetBreakglassEscalationsWithSelector(ctx, fields.SelectorFromSet(fields.Set{
+		"spec.cluster":  cug.Clustername,
+		"spec.username": cug.Username,
 	}))
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to breakglass escalations")
-	}
-
-	userGroups, err := GetUserGroups(ctx, username, clustername)
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to get user groups")
-	}
-	groups := make(map[string]any, len(userGroups))
-	for _, group := range userGroups {
-		groups[group] = struct{}{}
-	}
-
-	escalationGroups := make([]string, 0, len(escalations))
-	for _, esc := range escalations {
-		if intersects(groups, esc.Spec.AllowedGroups) {
-			escalationGroups = append(escalationGroups, esc.Spec.EscalatedGroup)
-		}
-	}
-
-	return escalationGroups, nil
 }
 
-func intersects(amap map[string]any, b []string) bool {
-	for _, v := range b {
-		if _, has := amap[v]; has {
-			return true
-		}
-	}
-
-	return false
+func (em EscalationManager) GetClusterUserBreakglassEscalationByGroup(ctx context.Context,
+	cug ClusterUserGroup,
+) ([]telekomv1alpha1.BreakglassEscalation, error) {
+	return em.GetBreakglassEscalationsWithSelector(ctx, fields.SelectorFromSet(fields.Set{
+		"spec.cluster":        cug.Clustername,
+		"spec.username":       cug.Username,
+		"spec.escalatedGroup": cug.Groupname,
+	}))
 }
 
 func NewEscalationManager(contextName string) (EscalationManager, error) {
