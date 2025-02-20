@@ -32,7 +32,6 @@ const handleSendButtonClick = async () => {
   } as BreakglassSessionRequest
 
   await breakglassSession.requestSession(sessionRequest).then(response => {
-    console.log(response.status)
     switch (response.status) {
       case 200:
         alreadyRequested.value = true
@@ -47,7 +46,14 @@ const handleSendButtonClick = async () => {
     }
   }).catch(
     err => {
-      console.log("failed to request session error:", err)
+      switch (err.status) {
+        case 401:
+          requestStatusMessage.value = "No transition defined for requested group."
+          break
+      default:
+        requestStatusMessage.value = "Failed to create breakglass session, please try again later"
+        console.log(err)
+      }
     }
   )
 };
@@ -124,5 +130,4 @@ scale-card {
   margin: 0 auto;
   max-width: 500px;
 }
-
 </style>
