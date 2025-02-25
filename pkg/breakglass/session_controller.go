@@ -368,15 +368,48 @@ func (wc BreakglassSessionController) getApproversFromEscalations(escalations []
 }
 
 func (wc BreakglassSessionController) isSessionApprover(c *gin.Context, session telekomv1alpha1.BreakglassSession) bool {
-	// TODO: compare identity with transition data
-	_, err := wc.identityProvider.GetEmail(c)
+	email, err := wc.identityProvider.GetEmail(c)
 	if err != nil {
 		wc.log.Error("Error getting user identity", zap.Error(err))
 		return false
 	}
+	approverID := ClusterUserGroup{
+		Username:    email,
+		Clustername: session.Spec.Cluster,
+	}
+	ctx := c.Request.Context()
 
-	// TODO: Simply we need to check if approvers from transition are handling this BreakglassSessionRequest
-	return true
+	escalations, err := wc.escalationManager.GetClusterUserGroupBreakglassEscalation(
+		ctx,
+		ClusterUserGroup{
+			Username:    session.Spec.Username,
+			Clustername: session.Spec.Cluster,
+			Groupname:   session.Spec.Group,
+		})
+	if err != nil {
+		wc.log.Error("Error getting user escalations", zap.Error(err))
+		return false
+	}
+
+	userGroups, err := GetUserGroups(ctx, approverID)
+	if err != nil {
+		wc.log.Error("Error getting approver groups", zap.Error(err))
+		return false
+	}
+	groupsMap := map[string]any{}
+	for _, g := range userGroups {
+		groupsMap[g] = struct{}{}
+	}
+
+	for _, esc := range escalations {
+		if slices.Contains(esc.Spec.Approvers.Users, approverID.Username) {
+			return true
+		} else if intersects(groupsMap, esc.Spec.Approvers.Groups) {
+			return true
+		}
+	}
+
+	return false
 }
 
 func NewBreakglassSessionController(log *zap.SugaredLogger,

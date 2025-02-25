@@ -56,7 +56,7 @@ func (em EscalationManager) GetClusterUserBreakglassEscalations(ctx context.Cont
 	}))
 }
 
-func (em EscalationManager) GetClusterUserBreakglassEscalationByGroup(ctx context.Context,
+func (em EscalationManager) GetClusterUserGroupBreakglassEscalation(ctx context.Context,
 	cug ClusterUserGroup,
 ) ([]telekomv1alpha1.BreakglassEscalation, error) {
 	return em.GetBreakglassEscalationsWithSelector(ctx, fields.SelectorFromSet(fields.Set{
