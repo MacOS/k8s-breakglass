@@ -51,12 +51,6 @@ const expiryHumanized = computed(() => {
       <p>
         Cluster name: <b>{{ breakglass.spec.cluster }}</b>
       </p>
-
-      <p>
-        <b>Approvers:</b> <br>
-        <small v-for="approver in breakglass.spec.approvers"> {{ approver }}<br> </small>
-      </p>
-
     </span>
 
     <p v-if="approved" class="expiry">

@@ -1,8 +1,7 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed } from "vue";
 import humanizeDuration from "humanize-duration";
 
-import type { ClusterAccessReview } from "@/model/cluster_access";
 
 const humanizeConfig: humanizeDuration.Options = {
   round: true,
