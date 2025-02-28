@@ -94,9 +94,10 @@ func (wc BreakglassSessionController) handleGetBreakglassSessionStatus(c *gin.Co
 			return
 		}
 
-		sessions, err := FilterSessionsForUserApprovable(ctx,
-			ClusterUserGroup{Clustername: clusterName, Username: userID},
-			escalations, sessions)
+		sessions, err := EscalationFiltering{
+			FilterUserData:   ClusterUserGroup{Clustername: clusterName, Username: userID},
+			UserGroupExtract: GetUserGroups,
+		}.FilterSessionsForUserApprovable(ctx, escalations, sessions)
 		if err != nil {
 			wc.log.Error("Error fitlering for user approvable", zap.Error(err))
 			c.JSON(http.StatusInternalServerError, "failed to extract user breakglass information")
@@ -123,27 +124,32 @@ func (wc BreakglassSessionController) handleRequestBreakglassSession(c *gin.Cont
 	}
 
 	ctx := c.Request.Context()
+	cug := ClusterUserGroup(request)
 
-	escalations, err := wc.escalationManager.GetClusterUserBreakglassEscalations(ctx, ClusterUserGroup(request))
+	escalations, err := wc.escalationManager.GetClusterUserBreakglassEscalations(ctx, cug)
 	if err != nil {
 		wc.log.Error("Error getting breakglass escalations", zap.Error(err))
 		c.JSON(http.StatusInternalServerError, "failed to extract cluster breakglass escalation information")
 
 	}
 
-	possibleEscals, err := FilterForUserPossibleEscalations(ctx, escalations, ClusterUserGroup(request))
+	possibleEscals, err := EscalationFiltering{
+		FilterUserData:   cug,
+		UserGroupExtract: GetUserGroups,
+	}.FilterForUserPossibleEscalations(ctx, escalations)
 	if err != nil {
 		wc.log.Error("Error getting breakglass escalation groups", zap.Error(err))
 		c.JSON(http.StatusInternalServerError, "failed to extract cluster group escalation information")
 		return
 	}
+
 	possible := []string{}
 	approvers := []string{}
-	approverGroups := []string{}
+	// approverGroups := []string{}
 	for _, p := range possibleEscals {
 		possible = append(possible, p.Spec.EscalatedGroup)
 		approvers = append(approvers, p.Spec.Approvers.Users...)
-		approverGroups = append(approverGroups, p.Spec.Approvers.Groups...)
+		// approverGroups = append(approverGroups, p.Spec.Approvers.Groups...)
 	}
 
 	if !slices.Contains(possible, request.Groupname) {

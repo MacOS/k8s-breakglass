@@ -9,11 +9,13 @@ import (
 	"golang.org/x/exp/slices"
 )
 
-func FilterForUserPossibleEscalations(ctx context.Context,
-	escalations []telekomv1alpha1.BreakglassEscalation,
-	cug ClusterUserGroup,
-) ([]telekomv1alpha1.BreakglassEscalation, error) {
-	userGroups, err := GetUserGroups(ctx, cug)
+type EscalationFiltering struct {
+	FilterUserData   ClusterUserGroup
+	UserGroupExtract func(context.Context, ClusterUserGroup) ([]string, error)
+}
+
+func (ef EscalationFiltering) FilterForUserPossibleEscalations(ctx context.Context, escalations []telekomv1alpha1.BreakglassEscalation) ([]telekomv1alpha1.BreakglassEscalation, error) {
+	userGroups, err := ef.UserGroupExtract(ctx, ef.FilterUserData)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to get user groups")
 	}
@@ -30,6 +32,35 @@ func FilterForUserPossibleEscalations(ctx context.Context,
 	}
 
 	return possible, nil
+}
+
+func (ef EscalationFiltering) FilterSessionsForUserApprovable(ctx context.Context,
+	escalations []telekomv1alpha1.BreakglassEscalation,
+	sessions []telekomv1alpha1.BreakglassSession,
+) ([]telekomv1alpha1.BreakglassSession, error) {
+	userGroups, err := ef.UserGroupExtract(ctx, ef.FilterUserData)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to get user rbac cluster groups")
+	}
+	userCluserGroups := map[string]any{}
+	for _, g := range userGroups {
+		userCluserGroups[g] = struct{}{}
+	}
+
+	displayable := []v1alpha1.BreakglassSession{}
+
+	for _, ses := range sessions {
+		for _, esc := range escalations {
+			if slices.Contains(esc.Spec.Approvers.Users, ef.FilterUserData.Username) {
+				displayable = append(displayable, ses)
+				break
+			} else if intersects(userCluserGroups, esc.Spec.Approvers.Groups) {
+				displayable = append(displayable, ses)
+				break
+			}
+		}
+	}
+	return displayable, nil
 }
 
 func FilterSessionsForUserApprovable(ctx context.Context,
