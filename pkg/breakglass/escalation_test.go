@@ -2,6 +2,7 @@ package breakglass_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"gitlab.devops.telekom.de/schiff/engine/go-breakglass.git/api/v1alpha1"
@@ -31,34 +32,136 @@ func TestFilterForUserPossibleEscalations(t *testing.T) {
 	extract := func(context.Context, breakglass.ClusterUserGroup) ([]string, error) {
 		return []string{SampleBaseGroup}, nil
 	}
-	filter := breakglass.EscalationFiltering{
-		FilterUserData:   SampleUserData,
-		UserGroupExtract: extract,
+	testCases := []struct {
+		TestName             string
+		Filter               breakglass.EscalationFiltering
+		Escalations          []v1alpha1.BreakglassEscalation
+		ExpectedOutputGroups []string
+		ErrExpected          bool
+	}{
+		// case 1 simple
+		{
+			TestName: "Single escalation",
+			Filter: breakglass.EscalationFiltering{
+				FilterUserData:   SampleUserData,
+				UserGroupExtract: extract,
+			},
+
+			Escalations: []v1alpha1.BreakglassEscalation{
+				{Spec: v1alpha1.BreakglassEscalationSpec{
+					Cluster:        SampleUserData.Clustername,
+					Username:       SampleUserData.Username,
+					AllowedGroups:  []string{SampleBaseGroup},
+					EscalatedGroup: SampleEscalationGroup,
+					Approvers:      v1alpha1.BreakglassEscalationApprovers{},
+				}},
+				{Spec: v1alpha1.BreakglassEscalationSpec{
+					Cluster:        SampleUserData.Clustername,
+					Username:       "other_user",
+					AllowedGroups:  []string{SampleBaseGroup},
+					EscalatedGroup: SampleEscalationGroup,
+					Approvers:      v1alpha1.BreakglassEscalationApprovers{},
+				}},
+			},
+			ExpectedOutputGroups: []string{SampleEscalationGroup},
+			ErrExpected:          false,
+		},
+		// case 2 multiple out escalations
+		{
+			TestName: "Multiple escalation",
+			Filter: breakglass.EscalationFiltering{
+				FilterUserData: SampleUserData,
+				UserGroupExtract: func(context.Context, breakglass.ClusterUserGroup) ([]string, error) {
+					return []string{"other_group"}, nil
+				},
+			},
+
+			Escalations: []v1alpha1.BreakglassEscalation{
+				{Spec: v1alpha1.BreakglassEscalationSpec{
+					Cluster:        SampleUserData.Clustername,
+					Username:       SampleUserData.Username,
+					AllowedGroups:  []string{SampleBaseGroup, "other_group"},
+					EscalatedGroup: SampleEscalationGroup,
+					Approvers:      v1alpha1.BreakglassEscalationApprovers{},
+				}},
+				{Spec: v1alpha1.BreakglassEscalationSpec{
+					Cluster:        SampleUserData.Clustername,
+					Username:       SampleUserData.Username,
+					AllowedGroups:  []string{"other_group"},
+					EscalatedGroup: "escalation_2",
+					Approvers:      v1alpha1.BreakglassEscalationApprovers{},
+				}},
+				{Spec: v1alpha1.BreakglassEscalationSpec{
+					Cluster:        SampleUserData.Clustername,
+					Username:       SampleUserData.Username,
+					AllowedGroups:  []string{"third_group"},
+					EscalatedGroup: SampleEscalationGroup,
+					Approvers:      v1alpha1.BreakglassEscalationApprovers{},
+				}},
+				{Spec: v1alpha1.BreakglassEscalationSpec{
+					Cluster:        SampleUserData.Clustername,
+					Username:       SampleUserData.Username,
+					AllowedGroups:  []string{"other_group", "yet_another"},
+					EscalatedGroup: "escalation_3",
+					Approvers:      v1alpha1.BreakglassEscalationApprovers{},
+				}},
+			},
+			ExpectedOutputGroups: []string{SampleEscalationGroup, "escalation_2", "escalation_3"},
+			ErrExpected:          false,
+		},
+		// case error
+		{
+			TestName: "Group extract error",
+			Filter: breakglass.EscalationFiltering{
+				FilterUserData: SampleUserData,
+				UserGroupExtract: func(context.Context, breakglass.ClusterUserGroup) ([]string, error) {
+					return []string{}, fmt.Errorf("failed to extract group")
+				},
+			},
+
+			Escalations: []v1alpha1.BreakglassEscalation{
+				{Spec: v1alpha1.BreakglassEscalationSpec{
+					Cluster:        SampleUserData.Clustername,
+					Username:       SampleUserData.Username,
+					AllowedGroups:  []string{SampleBaseGroup},
+					EscalatedGroup: SampleEscalationGroup,
+					Approvers:      v1alpha1.BreakglassEscalationApprovers{},
+				}},
+			},
+			ExpectedOutputGroups: []string{},
+			ErrExpected:          true,
+		},
 	}
-	escalations := []v1alpha1.BreakglassEscalation{
-		{Spec: v1alpha1.BreakglassEscalationSpec{
-			Cluster:        SampleUserData.Clustername,
-			Username:       SampleUserData.Username,
-			AllowedGroups:  []string{SampleBaseGroup},
-			EscalatedGroup: SampleEscalationGroup,
-			Approvers:      v1alpha1.BreakglassEscalationApprovers{},
-		}},
-		{Spec: v1alpha1.BreakglassEscalationSpec{
-			Cluster:        SampleUserData.Clustername,
-			Username:       "other_user",
-			AllowedGroups:  []string{SampleBaseGroup},
-			EscalatedGroup: SampleEscalationGroup,
-			Approvers:      v1alpha1.BreakglassEscalationApprovers{},
-		}},
-	}
-	out, err := filter.FilterForUserPossibleEscalations(
-		context.Background(),
-		escalations)
-	if err != nil {
-		t.Errorf("Expected not to get error Error: %v", err)
-	}
-	if l := len(out); l != 1 {
-		t.Errorf("Expected to get only one escalation after got: %d", l)
+
+	for _, testCase := range testCases {
+		t.Run(testCase.TestName, func(t *testing.T) {
+			filter := testCase.Filter
+			escalations := testCase.Escalations
+			expected := testCase.ExpectedOutputGroups
+			out, err := filter.FilterForUserPossibleEscalations(
+				context.Background(),
+				escalations)
+
+			if err != nil && !testCase.ErrExpected {
+				t.Errorf("Expected not to get error Error: %v", err)
+			} else if err == nil && testCase.ErrExpected {
+				t.Error("Expected to get error, but go nil")
+			}
+
+			if testCase.ErrExpected {
+				return
+			}
+
+			if l := len(out); l != len(expected) {
+				t.Errorf("Expected to get %d escalation after filtering got: %d", len(expected), l)
+			}
+
+			for i, escal := range out {
+				if escal.Spec.EscalatedGroup != expected[i] {
+					t.Errorf("Expected to get %q escalation group as output number %d got %q instead", expected[i], i, escal.Spec.EscalatedGroup)
+				}
+			}
+		})
 	}
 }
 
