@@ -1,7 +1,7 @@
 server:
   listenAddress: :8080
-  tlsCertFile: /some/file.crt
-  tlsKeyFile: /some/file.key
+  tlsCertFile: /some/file.crt # optional
+  tlsKeyFile: /some/file.key # optional for https
   baseURL: http://breakglass.example.telekom.de
 keycloak:
   url: http://127.0.0.1:8080
@@ -16,6 +16,7 @@ frontend:
 mail:
   host: 127.0.0.1
   port: 1025
+  insecureSkipVerify: false
 breakglassjwt:
   jwtprivatekey:
   jwtpublickey:
