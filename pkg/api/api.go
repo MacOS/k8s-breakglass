@@ -1,6 +1,7 @@
 package api
 
 import (
+	"fmt"
 	"net/http"
 	"time"
 
@@ -81,10 +82,15 @@ func (s *Server) RegisterAll(controllers []APIController) error {
 }
 
 func (s *Server) Listen() {
+	var err error
 	if s.config.Server.TLSCertFile != "" && s.config.Server.TLSKeyFile != "" {
-		_ = s.gin.RunTLS(s.config.Server.ListenAddress, s.config.Server.TLSCertFile, s.config.Server.TLSKeyFile)
+		err = s.gin.RunTLS(s.config.Server.ListenAddress, s.config.Server.TLSCertFile, s.config.Server.TLSKeyFile)
+	} else {
+		err = s.gin.Run(s.config.Server.ListenAddress)
 	}
-	_ = s.gin.Run(s.config.Server.ListenAddress)
+	if err != nil {
+		fmt.Println(err)
+	}
 }
 
 type FrontendConfig struct {
