@@ -82,7 +82,7 @@ func (wc *WebhookController) handleAuthorize(c *gin.Context) {
 	if can {
 		allowed = true
 	} else {
-		reason = fmt.Sprintf("please request proper group assignment at %s/breakglassSession/request?cluster=%s",
+		reason = fmt.Sprintf("please request proper group assignment at %s/request?cluster=%s",
 			wc.config.Frontend.BaseURL, cluster)
 	}
 

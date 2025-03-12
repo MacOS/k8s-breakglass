@@ -13,12 +13,12 @@ const router = createRouter({
       component: BreakglassView,
     },
     {
-      path: "/breakglassSession/request",
+      path: "/request",
       name: "breakglassSessionRequest",
       component: BreaglassSessionRequestView,
     },
     {
-      path: "/breakglassSession/review",
+      path: "/review",
       name: "breakglassSessionReview",
       component: BreaglassSessionReviewView,
     },
