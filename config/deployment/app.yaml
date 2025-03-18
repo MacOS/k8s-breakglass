@@ -31,8 +31,11 @@ spec:
         imagePullPolicy: "Never"
         name: breakglass
         resources: {}
+        env:
+        - name: BREAKGLASS_CONFIG_PATH
+          value: /config/config.yaml
         volumeMounts:
-        - mountPath: /config/config.yaml
+        - mountPath: /config/
           name: config
           readOnly: true
       serviceAccountName: breakglass-manager
