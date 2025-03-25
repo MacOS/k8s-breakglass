@@ -16,6 +16,8 @@ import (
 	"k8s.io/kubernetes/pkg/apis/authorization"
 )
 
+const denyReasonMessage = "please request proper group assignment at %s/request?cluster=%s"
+
 type SubjectAccessReviewResponseStatus struct {
 	Allowed bool   `json:"allowed"`
 	Reason  string `json:"reason"`
@@ -51,16 +53,6 @@ func (wc *WebhookController) handleAuthorize(c *gin.Context) {
 	cluster := c.Param("cluster_name")
 	ctx := c.Request.Context()
 
-	if cluster == "" {
-		c.JSON(http.StatusBadRequest, "no cluster name provided")
-		return
-	}
-	if c.Request.Body == nil {
-		log.Println("empty body provided to handleAuthorize")
-		c.JSON(http.StatusBadRequest, "no body was provided")
-		return
-	}
-
 	sar := authorization.SubjectAccessReview{}
 
 	err := json.NewDecoder(c.Request.Body).Decode(&sar)
@@ -72,6 +64,7 @@ func (wc *WebhookController) handleAuthorize(c *gin.Context) {
 
 	username := sar.Spec.User
 	groups, err := wc.getUserGroupsForCluster(ctx, username, cluster)
+	fmt.Println("has err", err)
 	if err != nil {
 		log.Println("error while getting user groups", err)
 		c.Status(http.StatusInternalServerError)
@@ -94,7 +87,7 @@ func (wc *WebhookController) handleAuthorize(c *gin.Context) {
 	if can {
 		allowed = true
 	} else {
-		reason = fmt.Sprintf("please request proper group assignment at %s/request?cluster=%s",
+		reason = fmt.Sprintf(denyReasonMessage,
 			wc.config.Frontend.BaseURL, cluster)
 	}
 
