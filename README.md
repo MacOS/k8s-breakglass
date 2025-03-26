@@ -40,6 +40,9 @@ related configuration and run:
 make deploy
 ```
 
+Make sure that `${authorizationserver.url}/${jwksEndpoint}` is accessible by application. <br/>
+See `config/dev/resources/keycloak.yaml` for sample kubernetes `Service` exposing keycloak as auth server.
+
 ### Dev environment:
 ```bash
 make deploy_dev
