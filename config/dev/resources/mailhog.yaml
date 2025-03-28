@@ -18,8 +18,8 @@ spec:
         app: mailhog
     spec:
       containers:
-      - image: 
-        name: mailhog/mailhog:latest
+      - image: mailhog/mailhog:latest 
+        name: mailhog
         resources: {}
 ---
 apiVersion: v1
@@ -35,9 +35,11 @@ spec:
   - port: 8025
     protocol: TCP
     targetPort: 8025
+    name: 8025-8025
   - port: 1025
     protocol: TCP
     targetPort: 1025
+    name: 1025-1025
   selector:
     app: mailhog
   sessionAffinity: None

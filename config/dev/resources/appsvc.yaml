@@ -2,8 +2,8 @@ apiVersion: v1
 kind: Service
 metadata:
   labels:
-    app: keycloak
-  name: keycloak
+    app: breakglass
+  name: breakglass
   namespace: system
 spec:
   ports:
@@ -11,6 +11,7 @@ spec:
     port: 8081
     protocol: TCP
     targetPort: 8081
+    nodePort: 30081
   selector:
-    app: keycloak
+    app: breakglass
   type: NodePort

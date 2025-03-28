@@ -19,6 +19,8 @@ resources:
 - ../rbac
 - ../deployment
 - ./resources/keycloak.yaml
+- ./resources/mailhog.yaml
+- ./resources/appsvc.yaml
 
 
 configMapGenerator:
