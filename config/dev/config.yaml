@@ -8,7 +8,7 @@ authorizationServer:
 frontend:
   oidcAuthority: https://breakglass-dev:30083/realms/master
   oidcClientID: breakglass-ui
-  baseURL: http://https://breakglass-dev:30081
+  baseURL: https://breakglass-dev:30081
 mail:
   host: breakglass-dev-mailhog
   port: 1025
