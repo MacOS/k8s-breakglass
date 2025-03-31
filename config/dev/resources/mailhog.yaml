@@ -36,6 +36,7 @@ spec:
     protocol: TCP
     targetPort: 8025
     name: 8025-8025
+    nodePort: 30084
   - port: 1025
     protocol: TCP
     targetPort: 1025

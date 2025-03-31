@@ -46,5 +46,16 @@ See `config/dev/resources/keycloak.yaml` for sample kubernetes `Service` exposin
 ```bash
 make deploy_dev
 ```
-Will perform the same deployment as standard `deploy`, but will additionally include deployment of keycloak and mailhog alongside
-with services pointing to their open port. 
+Will perform similar deployment as standard `deploy`, but will additionally include deployment of keycloak and mailhog alongside
+with services pointing to their open ports. It also includes NodePort type services so that application can be instantly
+accessed.
+
+#### Accessing app through docker kind cluster
+It was tested for `kind` docker single cluster. <br/>
+Assuming your docker container has ip of `172.19.0.2` add following entry to `/etc/hosts`: `172.19.0.2      breakglass-dev`.
+Then you should be able to access main breakglass app under: `https://breakglass-dev:30081`, keycloak under: `https://breakglass-dev:30083` 
+and mailhog under `http://breakglass-dev:30084`.
+
+#### First time configuring Keycloak
+Go to `Clients` tab -> Create -> Add client called `breakglass-ui` or same as `breakglass-config.oidcClientID` -> Set
+correct `Valid Redirect URIs` and `Web Origins` (for testing and developement setting all `*` will work).

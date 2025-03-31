@@ -6,9 +6,9 @@ authorizationServer:
   url: http://breakglass-dev-keycloak:8080
   jwksEndpoint: "realms/master/protocol/openid-connect/certs" # sample for keycloak
 frontend:
-  oidcAuthority: https://breakglass-dev-keycloak:30083/realms/master
+  oidcAuthority: https://breakglass-dev:30083/realms/master
   oidcClientID: breakglass-ui
-  baseURL: http://localhost:5173
+  baseURL: http://https://breakglass-dev:30081
 mail:
   host: mailhog
   port: 1025
