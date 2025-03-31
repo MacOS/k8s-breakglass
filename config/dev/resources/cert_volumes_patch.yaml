@@ -1,0 +1,13 @@
+- op: add
+  path: /spec/template/spec/volumes/-
+  value:
+    name: certs
+    configMap:
+     name: breakglass-dev-certs
+
+- op: add
+  path: /spec/template/spec/containers/0/volumeMounts/-
+  value:
+    mountPath: /certs/
+    name: certs
+    readOnly: true

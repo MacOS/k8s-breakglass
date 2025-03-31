@@ -1,10 +1,12 @@
 server:
   listenAddress: 0.0.0.0:8081
+  tlsCertFile: /certs/ca.crt # optional
+  tlsKeyFile: /certs/ca.key # optional for https
 authorizationServer:
   url: http://breakglass-dev-keycloak:8080
   jwksEndpoint: "realms/master/protocol/openid-connect/certs" # sample for keycloak
 frontend:
-  oidcAuthority: http://breakglass-dev-keycloak:8080/realms/master
+  oidcAuthority: https://breakglass-dev-keycloak:30083/realms/master
   oidcClientID: breakglass-ui
   baseURL: http://localhost:5173
 mail:

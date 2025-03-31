@@ -21,6 +21,16 @@ resources:
 - ./resources/keycloak.yaml
 - ./resources/mailhog.yaml
 - ./resources/appsvc.yaml
+- ./resources/certs.yaml
+
+patches:
+- target:
+    group: apps
+    version: v1
+    kind: Deployment
+    name: manager
+  path: ./resources/cert_volumes_patch.yaml
+
 
 
 configMapGenerator:

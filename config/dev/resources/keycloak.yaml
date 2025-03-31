@@ -21,13 +21,22 @@ spec:
       - image: quay.io/keycloak/keycloak:18.0.2
         imagePullPolicy: "Never"
         name: keycloak
-        args: ["start-dev"]
+        args: ["start-dev --https-certificate-file=/certs/ca.crt --https-certificate-key-file=/certs/ca.key"]
         env:
         - name: KEYCLOAK_ADMIN
           value: admin
         - name: KEYCLOAK_ADMIN_PASSWORD
           value: admin
+        volumeMounts:
+        - mountPath: /certs/
+          name: certs
+          readOnly: true
         resources: {}
+      volumes:
+      - configMap:
+          defaultMode: 420
+          name: certs
+        name: certs
 ---
 apiVersion: v1
 kind: Service
@@ -38,6 +47,11 @@ metadata:
   namespace: system
 spec:
   ports:
+  - name: 8443-8443
+    port: 8443
+    protocol: TCP
+    targetPort: 8443
+    nodePort: 30083
   - name: 8080-8080
     port: 8080
     protocol: TCP
