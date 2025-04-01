@@ -2,6 +2,10 @@
 Golang application that allows for short-term elevation of privileges in an emergency situation.
 
 ## Overview
+Application consist of golang backend and typescript vue frontend client.  <br/>
+Main breakglass backend functionality is answering webhook authorization HTTP posts from configured clusters based
+on permission abstraction that extends existing RBAC `Roles`. <br/>
+Breakglass introduces and manages two custom resource Kubernetes objects `BreakglassSession` and `BreakglassEscalation`.
 
 ## Configuration
 App should be configured using config.yaml:
@@ -59,3 +63,23 @@ and mailhog under `http://breakglass-dev:30084`.
 #### First time configuring Keycloak
 Go to `Clients` tab -> Create -> Add client called `breakglass-ui` or same as `breakglass-config.oidcClientID` -> Set
 correct `Valid Redirect URIs` and `Web Origins` (for testing and developement setting all `*` will work).
+
+## Configuring webhook on managed clusters
+TODO
+
+## Breakglass custom resources
+### Session
+`BreakglassSession` is used for storing information about permission
+extension request and its status regarding approval, rejection or expiration.  <br/>
+Sessions are fully managed by breakglass, by provided CRUD REST endpoints.<br/>
+
+### Escalation
+`BreglassEscalation` lets breakglass storage (CustomResource) cluster admins define possible transitions for breakglass
+sessions. <br/>
+Breakglass manager only lists escalations and they should be created manually using other means like `kubectl` tool.  <br/>
+For BreakglassSession to be created there must be a corresponding BreaglassEscalation. <br/>
+Single escalation defines group that user with specific user/cluster id and currently assigned groups can request for.
+It also includes information about possible approvers.
+
+## Creating BreakglassEscalations
+
