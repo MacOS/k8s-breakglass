@@ -35,7 +35,7 @@ type BreakglassSessionController struct {
 	middleware        gin.HandlerFunc
 	identityProvider  IdentityProvider
 	mail              mail.Sender
-	getUserGroups     GetUserGroupsFunction
+	getUserGroupsFn   GetUserGroupsFunction
 }
 
 func (BreakglassSessionController) BasePath() string {
@@ -65,8 +65,16 @@ func (wc BreakglassSessionController) handleGetBreakglassSessionStatus(c *gin.Co
 	// TODO: To decide if we want to treat email or username as main identity
 	userName, _ := wc.identityProvider.GetEmail(c)
 
-	sessions, err := wc.sessionManager.GetBreakglassSessionsWithSelectorString(ctx,
-		SessionSelector(uname, user, cluster, group))
+	selector := SessionSelector(uname, user, cluster, group)
+	var sessions []v1alpha1.BreakglassSession
+	var err error
+	if selector != "" {
+		sessions, err = wc.sessionManager.GetBreakglassSessionsWithSelectorString(ctx,
+			selector)
+	} else {
+		sessions, err = wc.sessionManager.GetAllBreakglassSessions(ctx)
+	}
+
 	if err != nil {
 		wc.log.Error("Error getting breakglass sessions", zap.Error(err))
 		c.JSON(http.StatusInternalServerError, "failed to extract breakglass session information")
@@ -93,7 +101,7 @@ func (wc BreakglassSessionController) handleGetBreakglassSessionStatus(c *gin.Co
 
 		sessions, err := EscalationFiltering{
 			FilterUserData:   ClusterUserGroup{Clustername: clusterName, Username: userName},
-			UserGroupExtract: wc.getUserGroups,
+			UserGroupExtract: wc.getUserGroupsFn,
 		}.FilterSessionsForUserApprovable(ctx, sessions, escalations)
 		if err != nil {
 			wc.log.Error("Error fitlering for user approvable", zap.Error(err))
@@ -132,7 +140,7 @@ func (wc BreakglassSessionController) handleRequestBreakglassSession(c *gin.Cont
 
 	possibleEscals, err := EscalationFiltering{
 		FilterUserData:   cug,
-		UserGroupExtract: wc.getUserGroups,
+		UserGroupExtract: wc.getUserGroupsFn,
 	}.FilterForUserPossibleEscalations(ctx, escalations)
 	if err != nil {
 		wc.log.Error("Error getting breakglass escalation groups", zap.Error(err))
@@ -170,6 +178,7 @@ func (wc BreakglassSessionController) handleRequestBreakglassSession(c *gin.Cont
 	useremail, err := wc.identityProvider.GetEmail(c)
 	if err != nil {
 		wc.log.Error("Error getting user identity email", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, "failed to extract email from token")
 		return
 	}
 	username := wc.identityProvider.GetUsername(c)
@@ -357,7 +366,7 @@ func (wc BreakglassSessionController) isSessionApprover(c *gin.Context, session 
 
 	sessions, err := EscalationFiltering{
 		FilterUserData:   approverID,
-		UserGroupExtract: wc.getUserGroups,
+		UserGroupExtract: wc.getUserGroupsFn,
 	}.FilterSessionsForUserApprovable(
 		ctx,
 		[]v1alpha1.BreakglassSession{session},
@@ -387,7 +396,7 @@ func NewBreakglassSessionController(log *zap.SugaredLogger,
 		middleware:        middleware,
 		identityProvider:  ip,
 		mail:              mail.NewSender(cfg),
-		getUserGroups:     GetUserGroups,
+		getUserGroupsFn:   GetUserGroups,
 	}
 
 	return controller

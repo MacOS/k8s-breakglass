@@ -30,7 +30,7 @@ func (ec BreakglassEscalationController) handleGetEscalations(c *gin.Context) {
 
 	escalations, err := ec.manager.GetUserBreakglassEscalations(c.Request.Context(), email)
 	if err != nil {
-		ec.log.Error("Error getting user identity email", zap.Error(err))
+		ec.log.Error("Error getting user breakglass escalations", zap.Error(err))
 		c.JSON(http.StatusInternalServerError, "failed to extract user escalations")
 		return
 	}

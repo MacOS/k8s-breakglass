@@ -7,7 +7,6 @@ import (
 
 	"github.com/pkg/errors"
 	"gitlab.devops.telekom.de/schiff/engine/go-breakglass.git/api/v1alpha1"
-	telekomv1alpha1 "gitlab.devops.telekom.de/schiff/engine/go-breakglass.git/api/v1alpha1"
 	"k8s.io/apimachinery/pkg/fields"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
@@ -57,7 +56,7 @@ func SessionSelector(uname, username, cluster, group string) string {
 }
 
 // Get all stored GetClusterGroupAccess
-func (c SessionManager) GetAllBreakglassSessions(ctx context.Context) ([]telekomv1alpha1.BreakglassSession, error) {
+func (c SessionManager) GetAllBreakglassSessions(ctx context.Context) ([]v1alpha1.BreakglassSession, error) {
 	cgal := v1alpha1.BreakglassSessionList{}
 	if err := c.List(ctx, &cgal); err != nil {
 		return nil, errors.Wrap(err, "failed to get BreakglassSessionList")
@@ -67,7 +66,7 @@ func (c SessionManager) GetAllBreakglassSessions(ctx context.Context) ([]telekom
 }
 
 // Get all stored GetClusterGroupAccess
-func (c SessionManager) GetBreakglassSessionByName(ctx context.Context, name string) (telekomv1alpha1.BreakglassSession, error) {
+func (c SessionManager) GetBreakglassSessionByName(ctx context.Context, name string) (v1alpha1.BreakglassSession, error) {
 	bs := v1alpha1.BreakglassSession{}
 	if err := c.Get(ctx, client.ObjectKey{Name: name}, &bs); err != nil {
 		return bs, errors.Wrap(err, "failed to get BreakglassSession by name")
@@ -80,7 +79,7 @@ func (c SessionManager) GetBreakglassSessionByName(ctx context.Context, name str
 func (c SessionManager) GetClusterUserBreakglassSessions(ctx context.Context,
 	cluster string,
 	user string,
-) ([]telekomv1alpha1.BreakglassSession, error) {
+) ([]v1alpha1.BreakglassSession, error) {
 	selector := fmt.Sprintf("spec.cluster=%s,spec.username=%s",
 		cluster,
 		user)
@@ -90,7 +89,7 @@ func (c SessionManager) GetClusterUserBreakglassSessions(ctx context.Context,
 // GetBreakglassSessions with custom field selector string.
 func (c SessionManager) GetBreakglassSessionsWithSelectorString(ctx context.Context,
 	selectorString string,
-) ([]telekomv1alpha1.BreakglassSession, error) {
+) ([]v1alpha1.BreakglassSession, error) {
 	bsl := v1alpha1.BreakglassSessionList{}
 
 	fs, err := fields.ParseSelector(selectorString)
@@ -108,7 +107,7 @@ func (c SessionManager) GetBreakglassSessionsWithSelectorString(ctx context.Cont
 // GetBreakglassSessions with custom field selector.
 func (c SessionManager) GetBreakglassSessionsWithSelector(ctx context.Context,
 	fs fields.Selector,
-) ([]telekomv1alpha1.BreakglassSession, error) {
+) ([]v1alpha1.BreakglassSession, error) {
 	bsl := v1alpha1.BreakglassSessionList{}
 
 	if err := c.List(ctx, &bsl, &client.ListOptions{FieldSelector: fs}); err != nil {
@@ -119,7 +118,7 @@ func (c SessionManager) GetBreakglassSessionsWithSelector(ctx context.Context,
 }
 
 // Add new breakglass session.
-func (c SessionManager) AddBreakglassSession(ctx context.Context, bs telekomv1alpha1.BreakglassSession) error {
+func (c SessionManager) AddBreakglassSession(ctx context.Context, bs v1alpha1.BreakglassSession) error {
 	if err := c.Create(ctx, &bs); err != nil {
 		return errors.Wrap(err, "failed to create new BreakglassSession")
 	}
@@ -128,7 +127,7 @@ func (c SessionManager) AddBreakglassSession(ctx context.Context, bs telekomv1al
 }
 
 // Update breakglass session.
-func (c SessionManager) UpdateBreakglassSession(ctx context.Context, bs telekomv1alpha1.BreakglassSession) error {
+func (c SessionManager) UpdateBreakglassSession(ctx context.Context, bs v1alpha1.BreakglassSession) error {
 	if err := c.Update(ctx, &bs); err != nil {
 		return errors.Wrapf(err, "failed to update new BreakglassSession")
 	}
@@ -136,7 +135,7 @@ func (c SessionManager) UpdateBreakglassSession(ctx context.Context, bs telekomv
 	return nil
 }
 
-func (c SessionManager) UpdateBreakglassSessionStatus(ctx context.Context, bs telekomv1alpha1.BreakglassSession) error {
+func (c SessionManager) UpdateBreakglassSessionStatus(ctx context.Context, bs v1alpha1.BreakglassSession) error {
 	if err := c.Status().Update(ctx, &bs); err != nil {
 		return errors.Wrapf(err, "failed to update new BreakglassSession")
 	}
