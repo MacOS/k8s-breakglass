@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -105,13 +107,19 @@ func TestRequestApproveRejectGetSession(t *testing.T) {
 				return
 			}
 
-			if c.Request.Method == http.MethodPost {
-				c.Set("email", "tester@telekom.de")
-				c.Set("username", "Tester")
-			}
-			if c.Request.Method == http.MethodGet {
+			switch c.Request.Method {
+			case http.MethodGet:
 				c.Set("email", "approver@telekom.de")
 				c.Set("username", "Approver")
+			case http.MethodPost:
+				url := c.Request.URL.String()
+				if url == "/request" {
+					c.Set("email", "tester@telekom.de")
+					c.Set("username", "Tester")
+				} else if strings.HasPrefix(url, "/approve") || strings.HasPrefix(url, "/reject") {
+					c.Set("email", "approver@telekom.de")
+					c.Set("username", "Approver")
+				}
 			}
 
 			c.Next()
@@ -138,27 +146,30 @@ func TestRequestApproveRejectGetSession(t *testing.T) {
 	engine.ServeHTTP(w, req)
 	response := w.Result()
 	if response.StatusCode != http.StatusCreated {
-		t.Errorf("Expected status created (201) got '%d' instead", response.StatusCode)
+		t.Fatalf("Expected status CREATED (201) got '%d' instead", response.StatusCode)
 	}
 
 	// get created request and check if proper fields are set
-	req, _ = http.NewRequest("GET", "/status", nil)
-	w = httptest.NewRecorder()
-	engine.ServeHTTP(w, req)
-	response = w.Result()
-	if response.StatusCode != http.StatusOK {
-		t.Errorf("Expected status OK (200) got '%d' instead", response.StatusCode)
+	getSession := func() v1alpha1.BreakglassSession {
+		req, _ := http.NewRequest("GET", "/status", nil)
+		w := httptest.NewRecorder()
+		engine.ServeHTTP(w, req)
+		response := w.Result()
+		if response.StatusCode != http.StatusOK {
+			t.Fatalf("Expected status OK (200) got '%d' instead", response.StatusCode)
+		}
+		respSessions := []v1alpha1.BreakglassSession{}
+		err := json.NewDecoder(response.Body).Decode(&respSessions)
+		if err != nil {
+			t.Fatalf("Failed to decode response body %v", err)
+		}
+		if l := len(respSessions); l != 1 {
+			t.Fatalf("Expected one breakglass session to be created go %d instead. (%#v)", l, respSessions)
+		}
+		return respSessions[0]
 	}
 
-	respSessions := []v1alpha1.BreakglassSession{}
-	err := json.NewDecoder(response.Body).Decode(&respSessions)
-	if err != nil {
-		t.Fatalf("Failed to decode response body %v", err)
-	}
-	if l := len(respSessions); l != 1 {
-		t.Fatalf("Expected one breakglass session to be created go %d instead. (%#v)", l, respSessions)
-	}
-	ses := respSessions[0]
+	ses := getSession()
 	if stat := ses.Status.CreatedAt; stat.Day() != time.Now().Day() {
 		t.Fatalf("Incorrect session creation date day status %#v", stat)
 	}
@@ -166,8 +177,37 @@ func TestRequestApproveRejectGetSession(t *testing.T) {
 		t.Fatalf("Incorrect session store until date day status %#v", stat)
 	}
 
-	// approve session TODO:
-	// check if session status is approved  TODO:
-	// reject session TODO:
-	// check if session status is back to rejected  TODO:
+	// approve session
+	req, _ = http.NewRequest("POST",
+		fmt.Sprintf("/approve/%s", ses.Name),
+		nil)
+	w = httptest.NewRecorder()
+	engine.ServeHTTP(w, req)
+	response = w.Result()
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("Expected status OK (200) got '%d' instead", response.StatusCode)
+	}
+
+	// check if session status is approved
+	ses = getSession()
+	if !ses.Status.Approved {
+		t.Fatalf("Expected session to be approved, but it is not.")
+	}
+
+	// reject session
+	req, _ = http.NewRequest("POST",
+		fmt.Sprintf("/reject/%s", ses.Name),
+		nil)
+	w = httptest.NewRecorder()
+	engine.ServeHTTP(w, req)
+	response = w.Result()
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("Expected status OK (200) got '%d' instead", response.StatusCode)
+	}
+
+	// check if session status is back to rejected
+	ses = getSession()
+	if ses.Status.Approved {
+		t.Fatalf("Expected session to be rejected, but it is not.")
+	}
 }
