@@ -14,13 +14,12 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
-	"k8s.io/kubernetes/pkg/apis/authorization"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 )
 
 type CanGroupsDoFunction func(ctx context.Context,
 	groups []string,
-	sar authorization.SubjectAccessReview,
+	sar authorizationv1.SubjectAccessReview,
 	clustername string) (bool, error)
 
 type GetUserGroupsFunction func(ctx context.Context, cug ClusterUserGroup) ([]string, error)
@@ -28,7 +27,7 @@ type GetUserGroupsFunction func(ctx context.Context, cug ClusterUserGroup) ([]st
 // Checks if operations defined in access review could be performed if user belongs to given groups on a given cluster.
 func CanGroupsDo(ctx context.Context,
 	groups []string,
-	sar authorization.SubjectAccessReview,
+	sar authorizationv1.SubjectAccessReview,
 	clustername string,
 ) (bool, error) {
 	cfg, err := config.GetConfigWithContext(clustername)
