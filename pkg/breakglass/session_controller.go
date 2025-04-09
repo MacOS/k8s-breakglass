@@ -307,7 +307,7 @@ func (wc BreakglassSessionController) sendOnRequestEmail(bs v1alpha1.BreakglassS
 			RequestedCluster:  bs.Spec.Cluster,
 			RequestedUsername: bs.Spec.Username,
 			RequestedGroup:    bs.Spec.Group,
-			URL:               fmt.Sprintf("%s/breakglassSession/review?name=%s", wc.config.Frontend.BaseURL, bs.Name),
+			URL:               fmt.Sprintf("%s/review?name=%s", wc.config.Frontend.BaseURL, bs.Name),
 		})
 		if err != nil {
 			wc.log.Errorf("failed to render email template: %v", err)
