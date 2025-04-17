@@ -130,7 +130,10 @@ func (wc *WebhookController) getUserGroupsForCluster(ctx context.Context,
 	return groups, nil
 }
 
-func NewWebhookController(log *zap.SugaredLogger, cfg config.Config, manager *breakglass.SessionManager) *WebhookController {
+func NewWebhookController(log *zap.SugaredLogger,
+	cfg config.Config,
+	manager *breakglass.SessionManager,
+) *WebhookController {
 	controller := &WebhookController{
 		log:        log,
 		config:     cfg,

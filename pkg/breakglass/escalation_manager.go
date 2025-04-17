@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/pkg/errors"
-	"gitlab.devops.telekom.de/schiff/engine/go-breakglass.git/api/v1alpha1"
 	telekomv1alpha1 "gitlab.devops.telekom.de/schiff/engine/go-breakglass.git/api/v1alpha1"
 	"k8s.io/apimachinery/pkg/fields"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -18,7 +17,7 @@ type EscalationManager struct {
 
 // Get all stored GetClusterGroupAccess
 func (em EscalationManager) GetAllBreakglassEscalations(ctx context.Context) ([]telekomv1alpha1.BreakglassEscalation, error) {
-	escal := v1alpha1.BreakglassEscalationList{}
+	escal := telekomv1alpha1.BreakglassEscalationList{}
 	if err := em.List(ctx, &escal); err != nil {
 		return nil, errors.Wrap(err, "failed to get BreakglassEscalationList")
 	}
@@ -30,7 +29,7 @@ func (em EscalationManager) GetAllBreakglassEscalations(ctx context.Context) ([]
 func (em EscalationManager) GetBreakglassEscalationsWithSelector(ctx context.Context,
 	fs fields.Selector,
 ) ([]telekomv1alpha1.BreakglassEscalation, error) {
-	ess := v1alpha1.BreakglassEscalationList{}
+	ess := telekomv1alpha1.BreakglassEscalationList{}
 
 	if err := em.List(ctx, &ess, &client.ListOptions{FieldSelector: fs}); err != nil {
 		return nil, errors.Wrapf(err, "failed to list BreakglassEscalation with selector")

@@ -19,7 +19,6 @@ import (
 	"go.uber.org/zap"
 	authorization "k8s.io/api/authorization/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
@@ -130,7 +129,7 @@ func TestHandleAuthorize(t *testing.T) {
 	_ = contoller.Register(engine.Group("api"))
 
 	sar := authorization.SubjectAccessReview{
-		TypeMeta: v1.TypeMeta{
+		TypeMeta: metav1.TypeMeta{
 			Kind:       "SubjectAccessReview",
 			APIVersion: "authorization.k8s.io/v1",
 		},
