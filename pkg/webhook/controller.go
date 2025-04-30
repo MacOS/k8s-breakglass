@@ -109,8 +109,8 @@ func (wc *WebhookController) getUserGroupsForCluster(ctx context.Context,
 ) ([]string, error) {
 	selector := fields.SelectorFromSet(
 		fields.Set{
-			"spec.cluster":  clustername,
-			"spec.username": username,
+			"spec.cluster": clustername,
+			"spec.user":    username,
 		},
 	)
 	sessions, err := wc.sesManager.GetBreakglassSessionsWithSelector(ctx, selector)
