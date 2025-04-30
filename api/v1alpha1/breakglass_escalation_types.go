@@ -29,7 +29,7 @@ type BreakglassEscalationSpec struct {
 
 	// maxValidFor is the maximum amount of time a session for this escalation will be active for after it is approved.
 	// +default="1h"
-	MaxValidFor string `json:"MaxValidFor,omitempty"`
+	MaxValidFor string `json:"maxValidFor,omitempty"`
 	// retainFor is the amount of time to wait before removing a session for this escalation after it expired
 	// +optional
 	RetainFor string `json:"retainFor,omitempty"`
@@ -66,10 +66,6 @@ type BreakglassEscalationStatus struct{}
 // +kubebuilder:resource:scope=Cluster
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
-// +kubebuilder:selectablefield:JSONPath=`.spec.cluster`
-// +kubebuilder:selectablefield:JSONPath=`.spec.username`
-// +kubebuilder:selectablefield:JSONPath=`.spec.escalatedGroup`
-
 type BreakglassEscalation struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`

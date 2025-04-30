@@ -27,7 +27,7 @@ type BreakglassSessionSpec struct {
 	// +required
 	Cluster string `json:"cluster,omitempty"`
 
-	// username is the name of the user the session is valid for.
+	// user is the name of the user the session is valid for.
 	// +required
 	User string `json:"user,omitempty"`
 
@@ -41,10 +41,10 @@ type BreakglassSessionSpec struct {
 
 	// maxValidFor is the maximum amount of time the session will be active for after it is approved.
 	// +default="1h"
-	MaxValidFor string `json:"MaxValidFor,omitempty"`
+	MaxValidFor string `json:"maxValidFor,omitempty"`
 
 	// retainFor is the amount of time to wait before removing the session object after it was expired.
-	// +default="1m"
+	// +default="720h"
 	RetainFor string `json:"retainFor,omitempty"`
 }
 
@@ -61,11 +61,11 @@ type BreakglassSessionStatus struct {
 	// +omitempty
 	ApprovedAt metav1.Time `json:"approvedAt,omitempty"`
 
-	// expiresAt is the time when the session will expire.
-	// This value is set based on spec.expiresAfter when the session is approved.
+	// ExpiresAt is the time when the session will expire.
+	// This value is set based on spec.MaxValidFor when the session is approved.
 	// todo: make immutable
 	// +omitempty
-	ExpiredAfter metav1.Time `json:"expiresAt,omitempty"`
+	ExpiresAt metav1.Time `json:"expiresAt,omitempty"`
 
 	// retainedUntil is the time when the session object will be removed from the cluster.
 	// This value is set based on spec.retainFor when the session is approved.
@@ -86,9 +86,9 @@ type BreakglassSessionStatus struct {
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:selectablefield:JSONPath=`.spec.cluster`
-// +kubebuilder:selectablefield:JSONPath=`.spec.username`
+// +kubebuilder:selectablefield:JSONPath=`.spec.user`
 // +kubebuilder:selectablefield:JSONPath=`.spec.grantedGroup`
-// +kubebuilder:selectablefield:JSONPath=`.status.expiredAfter`
+// +kubebuilder:selectablefield:JSONPath=`.status.expiresAt`
 // +kubebuilder:selectablefield:JSONPath=`.status.approvedAt`
 
 // BreakglassSession is the Schema for the breakglasssessions API.

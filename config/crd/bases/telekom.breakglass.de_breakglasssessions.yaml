@@ -43,11 +43,6 @@ spec:
               BreakglassSessionSpec defines the desired state of BreakglassSession.
               todo: make all of this immutable (probably using CEL)
             properties:
-              MaxValidFor:
-                default: 1h
-                description: maxValidFor is the maximum amount of time the session
-                  will be active for after it is approved.
-                type: string
               cluster:
                 description: cluster is the name of the cluster the session is valid
                   for.
@@ -60,14 +55,18 @@ spec:
                 description: Max time a session can sit idle without being used by
                   user after approved.
                 type: string
+              maxValidFor:
+                default: 1h
+                description: maxValidFor is the maximum amount of time the session
+                  will be active for after it is approved.
+                type: string
               retainFor:
-                default: 1m
+                default: 720h
                 description: retainFor is the amount of time to wait before removing
                   the session object after it was expired.
                 type: string
               user:
-                description: username is the name of the user the session is valid
-                  for.
+                description: user is the name of the user the session is valid for.
                 type: string
             required:
             - cluster
@@ -144,8 +143,8 @@ spec:
                 type: array
               expiresAt:
                 description: |-
-                  expiresAt is the time when the session will expire.
-                  This value is set based on spec.expiresAfter when the session is approved.
+                  ExpiresAt is the time when the session will expire.
+                  This value is set based on spec.MaxValidFor when the session is approved.
                   todo: make immutable
                 format: date-time
                 type: string
@@ -176,9 +175,9 @@ spec:
         type: object
     selectableFields:
     - jsonPath: .spec.cluster
-    - jsonPath: .spec.username
+    - jsonPath: .spec.user
     - jsonPath: .spec.grantedGroup
-    - jsonPath: .status.expiredAfter
+    - jsonPath: .status.expiresAt
     - jsonPath: .status.approvedAt
     served: true
     storage: true

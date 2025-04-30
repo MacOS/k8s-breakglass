@@ -38,11 +38,6 @@ spec:
           spec:
             description: BreakglassEscalationSpec defines the desired state of BreakglassEscalation.
             properties:
-              MaxValidFor:
-                default: 1h
-                description: maxValidFor is the maximum amount of time a session for
-                  this escalation will be active for after it is approved.
-                type: string
               allowed:
                 description: allowed specifies who is allowed to use this escalation.
                 properties:
@@ -92,6 +87,11 @@ spec:
                 description: idleTimeout is the maximum amount of time a session for
                   this escalation can sit idle without being used.
                 type: string
+              maxValidFor:
+                default: 1h
+                description: maxValidFor is the maximum amount of time a session for
+                  this escalation will be active for after it is approved.
+                type: string
               retainFor:
                 description: retainFor is the amount of time to wait before removing
                   a session for this escalation after it expired
@@ -106,10 +106,6 @@ spec:
         required:
         - spec
         type: object
-    selectableFields:
-    - jsonPath: .spec.cluster
-    - jsonPath: .spec.username
-    - jsonPath: .spec.escalatedGroup
     served: true
     storage: true
     subresources:
