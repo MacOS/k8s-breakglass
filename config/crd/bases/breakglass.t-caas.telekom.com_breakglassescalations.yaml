@@ -38,66 +38,34 @@ spec:
           spec:
             description: BreakglassEscalationSpec defines the desired state of BreakglassEscalation.
             properties:
-              allowed:
-                description: allowed specifies who is allowed to use this escalation.
-                properties:
-                  clusters:
-                    description: |-
-                      clusters is a list of clusters this escalation can be used for.
-                      todo: implement globbing (or regex?) support
-                    items:
-                      type: string
-                    type: array
-                  groups:
-                    description: |-
-                      groups is a list of groups this escalation can be used by.
-                      todo: implement globbing (or regex?) support
-                    items:
-                      type: string
-                    type: array
-                  users:
-                    description: |-
-                      users is a list of users this escalation can be used by.
-                      todo: implement globbing (or regex?) support
-                    items:
-                      type: string
-                    type: array
-                type: object
+              allowedGroups:
+                items:
+                  type: string
+                type: array
               approvers:
-                description: approvers specifies who is allowed to approve this escalation.
+                description: BreakglassEscalationApprovers
                 properties:
                   groups:
-                    description: groups that are allowed to approve a session for
-                      this escalation
                     items:
                       type: string
                     type: array
                   users:
-                    description: users that are allowed to approve a session for this
-                      escalation
                     items:
                       type: string
                     type: array
                 type: object
+              cluster:
+                type: string
               escalatedGroup:
-                description: escalatedGroup is the group to be granted by this escalation.
                 type: string
-              idleTimeout:
-                default: 1h
-                description: idleTimeout is the maximum amount of time a session for
-                  this escalation can sit idle without being used.
-                type: string
-              maxValidFor:
-                default: 1h
-                description: maxValidFor is the maximum amount of time a session for
-                  this escalation will be active for after it is approved.
-                type: string
-              retainFor:
-                description: retainFor is the amount of time to wait before removing
-                  a session for this escalation after it expired
+              username:
                 type: string
             required:
-            - allowed
+            - allowedGroups
+            - approvers
+            - cluster
+            - escalatedGroup
+            - username
             type: object
           status:
             description: BreakglassEscalationStatus defines the observed state of
@@ -106,6 +74,10 @@ spec:
         required:
         - spec
         type: object
+    selectableFields:
+    - jsonPath: .spec.cluster
+    - jsonPath: .spec.username
+    - jsonPath: .spec.escalatedGroup
     served: true
     storage: true
     subresources:
