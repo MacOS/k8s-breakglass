@@ -144,20 +144,20 @@ func SetupController(interceptFuncs *interceptor.Funcs) *WebhookController {
 	}
 
 	logger, _ := zap.NewDevelopment()
-	contoller := NewWebhookController(logger.Sugar(),
+	controller := NewWebhookController(logger.Sugar(),
 		config.Config{
 			Frontend: config.Frontend{BaseURL: testFrontURL},
 		}, &sesmanager,
 		&escmanager)
-	contoller.canDoFn = alwaysCanDo
+	controller.canDoFn = alwaysCanDo
 
-	return contoller
+	return controller
 }
 
 func TestHandleAuthorize(t *testing.T) {
-	contoller := SetupController(nil)
+	controller := SetupController(nil)
 	engine := gin.New()
-	_ = contoller.Register(engine.Group(""))
+	_ = controller.Register(engine.Group(""))
 
 	allowRejectCases := []struct {
 		TestName           string
@@ -215,7 +215,7 @@ func TestHandleAuthorize(t *testing.T) {
 
 	for _, testCase := range allowRejectCases {
 		t.Run(testCase.TestName, func(t *testing.T) {
-			contoller.canDoFn = testCase.CanDoFunction
+			controller.canDoFn = testCase.CanDoFunction
 			var inBytes []byte
 
 			if testCase.InReview != nil {
@@ -249,11 +249,11 @@ func TestHandleAuthorize(t *testing.T) {
 // Checks if reason has link to frontend url in case there exists escalation (the single escalation used is defined in
 // setup function.
 func TestStatusReasons(t *testing.T) {
-	contoller := SetupController(nil)
-	contoller.canDoFn = alwaysCanNotDo
-	expReason := fmt.Sprintf(denyReasonMessage, contoller.config.Frontend.BaseURL, clusterNameWithEscalation)
+	controller := SetupController(nil)
+	controller.canDoFn = alwaysCanNotDo
+	expReason := fmt.Sprintf(denyReasonMessage, controller.config.Frontend.BaseURL, clusterNameWithEscalation)
 	engine := gin.New()
-	_ = contoller.Register(engine.Group(""))
+	_ = controller.Register(engine.Group(""))
 	var inBytes []byte
 	inBytes, _ = json.Marshal(sar)
 
@@ -295,10 +295,10 @@ func TestManagerError(t *testing.T) {
 		}
 		return nil
 	}}
-	contoller := SetupController(&listIntercept)
-	contoller.canDoFn = alwaysCanDo
+	controller := SetupController(&listIntercept)
+	controller.canDoFn = alwaysCanDo
 	engine := gin.New()
-	_ = contoller.Register(engine.Group(""))
+	_ = controller.Register(engine.Group(""))
 	var inBytes []byte
 	inBytes, _ = json.Marshal(sar)
 
