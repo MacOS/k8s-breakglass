@@ -4,9 +4,10 @@ metadata:
   labels:
   name: kind-sample
 spec:
-  cluster: kind
-  username: tester@mail.com
-  allowedGroups: ["system:authenticated"]
   escalatedGroup: "breakglass-create-all"
+  allowed:
+    clusters: ["kind"]
+    users: ["tester@mail.com"]
+    groups: ["system:authenticated"]
   approvers:
     users: ["admin@mail.com"]

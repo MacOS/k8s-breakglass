@@ -20,61 +20,71 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+type (
+	BreakglassSessionConditionType   string
+	BreakglassSessionConditionReason string
+)
+
+const (
+	SessionConditionTypeIdle     BreakglassSessionConditionType = "Idle"
+	SessionConditionTypeApproved BreakglassSessionConditionType = "Approved"
+	SessionConditionTypeRejected BreakglassSessionConditionType = "Rejected"
+
+	SessionConditionReasonEditedByApprover BreakglassSessionConditionReason = "EditedByApprover"
+)
+
 // BreakglassSessionSpec defines the desired state of BreakglassSession.
 type BreakglassSessionSpec struct {
-	// Important: Run "make" to regenerate code after modifying this file
-
-	// The cluster for which a breakglass session is managed.
+	// cluster is the name of the cluster the session is valid for.
 	// +required
 	Cluster string `json:"cluster,omitempty"`
 
-	// The name user of a user that requested for breakglass group session.
+	// user is the name of the user the session is valid for.
 	// +required
-	Username string `json:"username,omitempty"`
+	User string `json:"user,omitempty"`
 
-	// The requested RBAC group.
+	// grantedGroup is the group granted by the session.
 	// +required
-	Group string `json:"group,omitempty"`
+	GrantedGroup string `json:"grantedGroup,omitempty"`
 
 	// Max time a session can sit idle without being used by user after approved.
 	// +default="1h"
 	IdleTimeout string `json:"idleTimeout,omitempty"`
 
-	// Max time until session becomes expired.
+	// maxValidFor is the maximum amount of time the session will be active for after it is approved.
 	// +default="1h"
-	ExpirationTimeout string `json:"expirationTimeout,omitempty"`
+	MaxValidFor string `json:"maxValidFor,omitempty"`
 
-	// Timeout value after which sesssion should be removed and no longer kept for logs / audit.
-	// +default="1m"
-	HistoryTimeout string `json:"historyTimeout,omitempty"`
+	// retainFor is the amount of time to wait before removing the session object after it was expired.
+	// +default="720h"
+	RetainFor string `json:"retainFor,omitempty"`
 }
 
 // BreakglassSessionStatus defines the observed state of BreakglassSessionStatus.
 type BreakglassSessionStatus struct {
 	// Important: Run "make" to regenerate code after modifying this file
 
-	// Defines if session is expired by either being denied by approvers
-	// or reached expiration timeout.
-	Expired bool `json:"expired"`
+	// conditions is an array of current observed BreakglassSession conditions.
+	// todo: implement 'Active' and 'Expired' conditions.
+	Conditions []metav1.Condition `json:"conditions"`
 
-	// Defines if session is approved by one of the approvers.
-	Approved bool `json:"approved"`
-
-	// Not implemented
-	// Defines if session reached idle timeout.
-	IdleTimeoutReached bool `json:"idleTimeoutReached"`
-
-	// Creation time.
-	CreatedAt metav1.Time `json:"createdAt,omitempty"`
-
-	// Last approval time.
+	// approvedAt is the time when the session was approved.
+	// +omitempty
 	ApprovedAt metav1.Time `json:"approvedAt,omitempty"`
 
-	// Time until approval is expired, rbac group can no longer be used by user.
-	ValidUntil metav1.Time `json:"validUntil,omitempty"`
+	// rejectedAt is the time when the session was rejected.
+	// +omitempty
+	RejectedAt metav1.Time `json:"rejectedAt,omitempty"`
 
-	// Time until session object should be removed.
-	StoreUntil metav1.Time `json:"storeUntil,omitempty"`
+	// ExpiresAt is the time when the session will expire.
+	// This value is set based on spec.MaxValidFor when the session is approved.
+	// +omitempty
+	ExpiresAt metav1.Time `json:"expiresAt,omitempty"`
+
+	// retainedUntil is the time when the session object will be removed from the cluster.
+	// This value is set based on spec.retainFor when the session is approved.
+	// +omitempty
+	RetainedUntil metav1.Time `json:"retainedUntil,omitempty"`
 
 	// NOT IMPLEMENTED https://github.com/telekom/das-schiff-breakglass/issues/8
 	// Time until session is revoked due to user not actively using it.
@@ -89,11 +99,8 @@ type BreakglassSessionStatus struct {
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:selectablefield:JSONPath=`.spec.cluster`
-// +kubebuilder:selectablefield:JSONPath=`.spec.username`
-// +kubebuilder:selectablefield:JSONPath=`.spec.group`
-// +kubebuilder:selectablefield:JSONPath=`.status.expired`
-// +kubebuilder:selectablefield:JSONPath=`.status.approved`
-// +kubebuilder:selectablefield:JSONPath=`.status.idleTimeoutReached`
+// +kubebuilder:selectablefield:JSONPath=`.spec.user`
+// +kubebuilder:selectablefield:JSONPath=`.spec.grantedGroup`
 
 // BreakglassSession is the Schema for the breakglasssessions API.
 // Session unique identifier is a triple - cluster name, username, RBAC group.
@@ -102,6 +109,7 @@ type BreakglassSession struct {
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
 	// +required
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="session spec is immutable"
 	Spec   BreakglassSessionSpec   `json:"spec"`
 	Status BreakglassSessionStatus `json:"status,omitempty"`
 }
@@ -117,15 +125,4 @@ type BreakglassSessionList struct {
 
 func init() {
 	SchemeBuilder.Register(&BreakglassSession{}, &BreakglassSessionList{})
-}
-
-func NewBreakglassSession(cluster, username, group string) BreakglassSession {
-	return BreakglassSession{
-		Spec: BreakglassSessionSpec{
-			Cluster:  cluster,
-			Username: username,
-			Group:    group,
-		},
-		Status: BreakglassSessionStatus{},
-	}
 }

@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"strconv"
 	"testing"
 	"time"
 
@@ -69,65 +68,46 @@ const (
 )
 
 var sessionIndexFunctions = map[string]client.IndexerFunc{
-	"status.expired": func(o client.Object) []string {
-		return []string{strconv.FormatBool(o.(*v1alpha1.BreakglassSession).Status.Expired)}
-	},
-	"status.approved": func(o client.Object) []string {
-		return []string{strconv.FormatBool(o.(*v1alpha1.BreakglassSession).Status.Approved)}
-	},
-	"status.idleTimeoutReached": func(o client.Object) []string {
-		return []string{strconv.FormatBool(o.(*v1alpha1.BreakglassSession).Status.IdleTimeoutReached)}
-	},
-	"spec.username": func(o client.Object) []string {
-		return []string{o.(*v1alpha1.BreakglassSession).Spec.Username}
+	"spec.user": func(o client.Object) []string {
+		return []string{o.(*v1alpha1.BreakglassSession).Spec.User}
 	},
 	"spec.cluster": func(o client.Object) []string {
 		return []string{o.(*v1alpha1.BreakglassSession).Spec.Cluster}
 	},
-}
-
-var escalationIndexFunctions = map[string]client.IndexerFunc{
-	"spec.cluster": func(o client.Object) []string {
-		return []string{o.(*v1alpha1.BreakglassEscalation).Spec.Cluster}
-	},
-
-	"spec.username": func(o client.Object) []string {
-		return []string{o.(*v1alpha1.BreakglassEscalation).Spec.Username}
-	},
-	"spec.escalatedGroup": func(o client.Object) []string {
-		return []string{o.(*v1alpha1.BreakglassEscalation).Spec.EscalatedGroup}
+	"spec.grantedGroup": func(o client.Object) []string {
+		return []string{o.(*v1alpha1.BreakglassSession).Spec.GrantedGroup}
 	},
 }
 
-func SetupController(interceptFuncs *interceptor.Funcs) WebhookController {
-	ses := v1alpha1.NewBreakglassSession("test", "test", "test")
+func NewBreakglassSession(user, cluster, group string) v1alpha1.BreakglassSession {
+	return v1alpha1.BreakglassSession{
+		Spec: v1alpha1.BreakglassSessionSpec{
+			User:         user,
+			Cluster:      cluster,
+			GrantedGroup: group,
+		},
+	}
+}
+
+func SetupController(interceptFuncs *interceptor.Funcs) *WebhookController {
+	ses := NewBreakglassSession("test", "test", "test")
 	ses.Name = fmt.Sprintf("%s-%s-a1", testGroupData.Clustername, testGroupData.Groupname)
 	ses.Status = v1alpha1.BreakglassSessionStatus{
-		Expired:            false,
-		Approved:           false,
-		IdleTimeoutReached: false,
-		CreatedAt:          metav1.Now(),
-		StoreUntil:         metav1.NewTime(time.Now().Add(breakglass.MonthDuration)),
+		Conditions: []metav1.Condition{},
 	}
 
-	ses2 := v1alpha1.NewBreakglassSession("test2", "test2", "test2")
+	ses2 := NewBreakglassSession("test2", "test2", "test2")
 	ses2.Name = fmt.Sprintf("%s-%s-a2", testGroupData.Clustername, testGroupData.Groupname)
 	ses2.Status = v1alpha1.BreakglassSessionStatus{
-		Expired:            false,
-		Approved:           false,
-		IdleTimeoutReached: false,
-		CreatedAt:          metav1.Now(),
-		StoreUntil:         metav1.NewTime(time.Now().Add(breakglass.MonthDuration)),
+		Conditions:    []metav1.Condition{},
+		RetainedUntil: metav1.NewTime(time.Now().Add(breakglass.MonthDuration)),
 	}
 
-	ses3 := v1alpha1.NewBreakglassSession("testError", "testError", "testError")
+	ses3 := NewBreakglassSession("testError", "testError", "testError")
 	ses3.Name = fmt.Sprintf("%s-%s-a3", testGroupData.Clustername, testGroupData.Groupname)
 	ses3.Status = v1alpha1.BreakglassSessionStatus{
-		Expired:            false,
-		Approved:           false,
-		IdleTimeoutReached: false,
-		CreatedAt:          metav1.Now(),
-		StoreUntil:         metav1.NewTime(time.Now().Add(breakglass.MonthDuration)),
+		Conditions:    []metav1.Condition{},
+		RetainedUntil: metav1.NewTime(time.Now().Add(breakglass.MonthDuration)),
 	}
 
 	builder := fake.NewClientBuilder().WithScheme(breakglass.Scheme).
@@ -136,9 +116,11 @@ func SetupController(interceptFuncs *interceptor.Funcs) WebhookController {
 				Name: "tester-allow-create-all",
 			},
 			Spec: v1alpha1.BreakglassEscalationSpec{
-				Cluster:        clusterNameWithEscalation,
-				Username:       testGroupData.Username,
-				AllowedGroups:  []string{"system:authenticated"},
+				Allowed: v1alpha1.BreakglassEscalationAllowed{
+					Clusters: []string{clusterNameWithEscalation},
+					Users:    []string{testGroupData.Username},
+					Groups:   []string{"system:authenticated"},
+				},
 				EscalatedGroup: "breakglass-create-all",
 				Approvers: v1alpha1.BreakglassEscalationApprovers{
 					Users: []string{"approver@telekom.de"},
@@ -152,9 +134,6 @@ func SetupController(interceptFuncs *interceptor.Funcs) WebhookController {
 	for index, fn := range sessionIndexFunctions {
 		builder.WithIndex(&ses, index, fn)
 	}
-	for index, fn := range escalationIndexFunctions {
-		builder.WithIndex(&v1alpha1.BreakglassEscalation{}, index, fn)
-	}
 
 	cli := builder.Build()
 	sesmanager := breakglass.SessionManager{
@@ -165,20 +144,20 @@ func SetupController(interceptFuncs *interceptor.Funcs) WebhookController {
 	}
 
 	logger, _ := zap.NewDevelopment()
-	contoller := NewWebhookController(logger.Sugar(),
+	controller := NewWebhookController(logger.Sugar(),
 		config.Config{
 			Frontend: config.Frontend{BaseURL: testFrontURL},
 		}, &sesmanager,
 		&escmanager)
-	contoller.canDoFn = alwaysCanDo
+	controller.canDoFn = alwaysCanDo
 
-	return contoller
+	return controller
 }
 
 func TestHandleAuthorize(t *testing.T) {
-	contoller := SetupController(nil)
+	controller := SetupController(nil)
 	engine := gin.New()
-	_ = contoller.Register(engine.Group(""))
+	_ = controller.Register(engine.Group(""))
 
 	allowRejectCases := []struct {
 		TestName           string
@@ -236,7 +215,7 @@ func TestHandleAuthorize(t *testing.T) {
 
 	for _, testCase := range allowRejectCases {
 		t.Run(testCase.TestName, func(t *testing.T) {
-			contoller.canDoFn = testCase.CanDoFunction
+			controller.canDoFn = testCase.CanDoFunction
 			var inBytes []byte
 
 			if testCase.InReview != nil {
@@ -270,11 +249,11 @@ func TestHandleAuthorize(t *testing.T) {
 // Checks if reason has link to frontend url in case there exists escalation (the single escalation used is defined in
 // setup function.
 func TestStatusReasons(t *testing.T) {
-	contoller := SetupController(nil)
-	contoller.canDoFn = alwaysCanNotDo
-	expReason := fmt.Sprintf(denyReasonMessage, contoller.config.Frontend.BaseURL, clusterNameWithEscalation)
+	controller := SetupController(nil)
+	controller.canDoFn = alwaysCanNotDo
+	expReason := fmt.Sprintf(denyReasonMessage, controller.config.Frontend.BaseURL, clusterNameWithEscalation)
 	engine := gin.New()
-	_ = contoller.Register(engine.Group(""))
+	_ = controller.Register(engine.Group(""))
 	var inBytes []byte
 	inBytes, _ = json.Marshal(sar)
 
@@ -316,10 +295,10 @@ func TestManagerError(t *testing.T) {
 		}
 		return nil
 	}}
-	contoller := SetupController(&listIntercept)
-	contoller.canDoFn = alwaysCanDo
+	controller := SetupController(&listIntercept)
+	controller.canDoFn = alwaysCanDo
 	engine := gin.New()
-	_ = contoller.Register(engine.Group(""))
+	_ = controller.Register(engine.Group(""))
 	var inBytes []byte
 	inBytes, _ = json.Marshal(sar)
 

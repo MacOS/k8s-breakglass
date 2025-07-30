@@ -33,16 +33,15 @@ async function getActiveBreakglasses() {
     uname: resourceName.value,
     clustername: clusterName.value,
     username: userName.value,
-    clustergroup: groupName.value
+    clustergroup: groupName.value,
+    activeOnly: true
   }).then(response => {
     switch (response.status) {
       case 200:
         state.getBreakglassesMsg = ""
-        state.breakglasses = response.data.filter(
-          (breakglass: any) =>
-            (breakglass.status.expired == false &&
-            breakglass.status.idleTimeoutReached == false));
-        console.log(response.data)
+        state.breakglasses = response.data
+        // state.breakglasses = response.data.filter(
+        //   (breakglass: any) => true);
         break
     }
   }).catch(errResponse => {
@@ -62,6 +61,7 @@ const filteredBreakglasses = computed(() => {
   if (state.search === "") {
     return state.breakglasses;
   }
+  return state.breakglasses;
   // return state.breakglasses.filter((bg) => true);
 });
 
