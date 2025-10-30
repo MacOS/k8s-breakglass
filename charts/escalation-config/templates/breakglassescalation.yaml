@@ -1,0 +1,34 @@
+{{- $root := .Values -}}
+{{- range $i, $esc := .Values.escalations }}
+apiVersion: breakglass.t-caas.telekom.com/v1alpha1
+kind: BreakglassEscalation
+metadata:
+  name: {{ default (printf "escalation-%d" $i) $esc.name | trunc 63 | trimSuffix "-" }}
+  namespace: {{ $.Release.Namespace }}
+spec:
+  allowed:
+    clusters:
+{{ toYaml $esc.allowed.clusters | indent 6 }}
+    groups:
+{{ toYaml $esc.allowed.groups | indent 6 }}
+  escalatedGroup: {{ $esc.escalatedGroup }}
+  approvers:
+    groups:
+{{ toYaml $esc.approvers.groups | indent 6 }}
+  # Optional: restrict approver email domains for this escalation
+  {{- if $esc.allowedApproverDomains }}
+  allowedApproverDomains:
+{{ toYaml $esc.allowedApproverDomains | indent 4 }}
+  {{- end }}
+  # Optional: block self-approval for this escalation (true/false)
+  {{- if hasKey $esc "blockSelfApproval" }}
+  blockSelfApproval: {{ $esc.blockSelfApproval }}
+  {{- end }}
+  requestReason:
+    mandatory: {{ default false $esc.requestReason.mandatory }}
+    description: {{ quote $esc.requestReason.description }}
+  maxValidFor: {{ $esc.maxValidFor | default "1h" }}
+  retainFor: {{ $esc.retainFor | default "24h" }}
+  idleTimeout: {{ $esc.idleTimeout | default "1h" }}
+---
+{{- end }}

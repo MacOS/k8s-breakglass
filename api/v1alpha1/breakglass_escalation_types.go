@@ -5,7 +5,7 @@ Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-    http://www.apache.org/licenses/LICENSE-2.0
+	http://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -16,7 +16,17 @@ limitations under the License.
 
 package v1alpha1
 
-import metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+import (
+	"context"
+	"fmt"
+
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/util/validation/field"
+	ctrl "sigs.k8s.io/controller-runtime"
+)
 
 // BreakglassEscalationSpec defines the desired state of BreakglassEscalation.
 type BreakglassEscalationSpec struct {
@@ -36,6 +46,44 @@ type BreakglassEscalationSpec struct {
 	// idleTimeout is the maximum amount of time a session for this escalation can sit idle without being used.
 	// +default="1h"
 	IdleTimeout string `json:"idleTimeout,omitempty"`
+
+	// clusterConfigRefs lists ClusterConfig object names this escalation applies to (alternative to allowed.clusters).
+	// +optional
+	ClusterConfigRefs []string `json:"clusterConfigRefs,omitempty"`
+
+	// denyPolicyRefs (optional) attach default deny policies to any session created via this escalation.
+	// +optional
+	DenyPolicyRefs []string `json:"denyPolicyRefs,omitempty"`
+
+	// requestReason configures an optional free-text reason the requester must or may provide
+	// when creating a session for this escalation. If omitted, no reason is requested.
+	// +optional
+	RequestReason *ReasonConfig `json:"requestReason,omitempty"`
+
+	// approvalReason configures an optional free-text reason the approver must or may provide
+	// when approving/rejecting a session for this escalation. If omitted, no approver reason is requested.
+	// +optional
+	ApprovalReason *ReasonConfig `json:"approvalReason,omitempty"`
+
+	// allowedApproverDomains can restrict approvers to specific email domains for this escalation.
+	// If omitted, cluster-level defaults are used.
+	// +optional
+	AllowedApproverDomains []string `json:"allowedApproverDomains,omitempty"`
+
+	// blockSelfApproval, if set to true, will prevent the session requester from approving their own session for this escalation.
+	// If omitted (nil), the cluster-level setting will be used.
+	// +optional
+	BlockSelfApproval *bool `json:"blockSelfApproval,omitempty"`
+}
+
+type ReasonConfig struct {
+	// mandatory indicates whether the field is required (true) or optional (false).
+	// +optional
+	Mandatory bool `json:"mandatory,omitempty"`
+
+	// description describes what to enter in the reason field (e.g. "CASM TicketID").
+	// +optional
+	Description string `json:"description,omitempty"`
 }
 
 // BreakglassEscalationAllowed defines who is allowed to use an escalation.
@@ -44,9 +92,6 @@ type BreakglassEscalationAllowed struct {
 	// clusters is a list of clusters this escalation can be used for.
 	// todo: implement globbing (or regex?) support
 	Clusters []string `json:"clusters,omitempty"`
-	// users is a list of users this escalation can be used by.
-	// todo: implement globbing (or regex?) support
-	Users []string `json:"users,omitempty"`
 	// groups is a list of groups this escalation can be used by.
 	// todo: implement globbing (or regex?) support
 	Groups []string `json:"groups,omitempty"`
@@ -61,9 +106,26 @@ type BreakglassEscalationApprovers struct {
 }
 
 // BreakglassEscalationStatus defines the observed state of BreakglassEscalation.
-type BreakglassEscalationStatus struct{}
+type BreakglassEscalationStatus struct {
+	// approverGroupMembers caches expanded members for each approver group for notification purposes.
+	// key: group name, value: list of user emails/usernames resolved from the IdP.
+	// +optional
+	ApproverGroupMembers map[string][]string `json:"approverGroupMembers,omitempty"`
 
-// +kubebuilder:resource:scope=Cluster
+	// Counters for tracking requests and approvals
+	RequestCount  int `json:"requestCount,omitempty"`
+	ApprovalCount int `json:"approvalCount,omitempty"`
+
+	// Status of group resolution
+	GroupResolutionStatus map[string]string `json:"groupResolutionStatus,omitempty"`
+}
+
+// +kubebuilder:resource:scope=Namespaced,shortName=bge
+// +kubebuilder:printcolumn:name="Clusters",type=string,JSONPath=".spec.allowed.clusters",description="Clusters this escalation applies to"
+// +kubebuilder:printcolumn:name="Groups",type=string,JSONPath=".spec.allowed.groups",description="Groups allowed to request this escalation"
+// +kubebuilder:printcolumn:name="Age",type=date,JSONPath=".metadata.creationTimestamp",description="The age of the escalation"
+// +kubebuilder:printcolumn:name="Requests",type=integer,JSONPath=".status.requestCount",description="Number of requests for this escalation"
+// +kubebuilder:printcolumn:name="Approvals",type=integer,JSONPath=".status.approvalCount",description="Number of approvals for this escalation"
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 type BreakglassEscalation struct {
@@ -75,15 +137,95 @@ type BreakglassEscalation struct {
 	Status BreakglassEscalationStatus `json:"status,omitempty"`
 }
 
-// +kubebuilder:object:root=true
+//+kubebuilder:webhook:path=/validate-breakglass-t-caas-telekom-com-v1alpha1-breakglassescalation,mutating=false,failurePolicy=fail,sideEffects=None,groups=breakglass.t-caas.telekom.com,resources=breakglassescalations,verbs=create;update,versions=v1alpha1,name=vbreakglassescalation.kb.io,admissionReviewVersions={v1,v1beta1}
 
-// BreakglassEscalationList contains a list of BreakglassEscalation.
+// ValidateCreate implements webhook.Validator so a webhook will be registered for the type
+func (be *BreakglassEscalation) ValidateCreate() error {
+	var allErrs field.ErrorList
+	if be.Spec.EscalatedGroup == "" {
+		allErrs = append(allErrs, field.Required(field.NewPath("spec").Child("escalatedGroup"), "escalatedGroup is required"))
+	}
+
+	// global name uniqueness: prefer cache-backed listing
+	if webhookCache != nil {
+		var list BreakglassEscalationList
+		if err := webhookCache.List(context.Background(), &list); err == nil {
+			for _, item := range list.Items {
+				if item.Name == be.Name && item.Namespace != be.Namespace {
+					msg := fmt.Sprintf("name must be unique cluster-wide; conflicting namespace=%s", item.Namespace)
+					allErrs = append(allErrs, field.Duplicate(field.NewPath("metadata").Child("name"), msg))
+					break
+				}
+			}
+		}
+	} else if webhookClient != nil {
+		var list BreakglassEscalationList
+		if err := webhookClient.List(context.Background(), &list); err == nil {
+			for _, item := range list.Items {
+				if item.Name == be.Name && item.Namespace != be.Namespace {
+					msg := fmt.Sprintf("name must be unique cluster-wide; conflicting namespace=%s", item.Namespace)
+					allErrs = append(allErrs, field.Duplicate(field.NewPath("metadata").Child("name"), msg))
+					break
+				}
+			}
+		}
+	}
+
+	if len(allErrs) == 0 {
+		return nil
+	}
+	return apierrors.NewInvalid(schema.GroupKind{Group: "breakglass.t-caas.telekom.com", Kind: "BreakglassEscalation"}, be.Name, allErrs)
+}
+
+func (be *BreakglassEscalation) ValidateUpdate(old runtime.Object) error {
+	var allErrs field.ErrorList
+	// no immutability enforced
+	if webhookCache != nil {
+		var list BreakglassEscalationList
+		if err := webhookCache.List(context.Background(), &list); err == nil {
+			for _, item := range list.Items {
+				if item.Name == be.Name && item.Namespace != be.Namespace {
+					msg := fmt.Sprintf("name must be unique cluster-wide; conflicting namespace=%s", item.Namespace)
+					allErrs = append(allErrs, field.Duplicate(field.NewPath("metadata").Child("name"), msg))
+					break
+				}
+			}
+		}
+	} else if webhookClient != nil {
+		var list BreakglassEscalationList
+		if err := webhookClient.List(context.Background(), &list); err == nil {
+			for _, item := range list.Items {
+				if item.Name == be.Name && item.Namespace != be.Namespace {
+					msg := fmt.Sprintf("name must be unique cluster-wide; conflicting namespace=%s", item.Namespace)
+					allErrs = append(allErrs, field.Duplicate(field.NewPath("metadata").Child("name"), msg))
+					break
+				}
+			}
+		}
+	}
+	if len(allErrs) == 0 {
+		return nil
+	}
+	return apierrors.NewInvalid(schema.GroupKind{Group: "breakglass.t-caas.telekom.com", Kind: "BreakglassEscalation"}, be.Name, allErrs)
+}
+
+func (be *BreakglassEscalation) ValidateDelete() error { return nil }
+
+func (be *BreakglassEscalation) SetupWebhookWithManager(mgr ctrl.Manager) error {
+	webhookClient = mgr.GetClient()
+	if c := mgr.GetCache(); c != nil {
+		webhookCache = c
+	}
+	return ctrl.NewWebhookManagedBy(mgr).
+		For(be).
+		Complete()
+}
+
+// +kubebuilder:object:root=true
 type BreakglassEscalationList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []BreakglassEscalation `json:"items"`
 }
 
-func init() {
-	SchemeBuilder.Register(&BreakglassEscalation{}, &BreakglassEscalationList{})
-}
+func init() { SchemeBuilder.Register(&BreakglassEscalation{}, &BreakglassEscalationList{}) }
