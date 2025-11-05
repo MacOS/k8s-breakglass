@@ -1,6 +1,8 @@
 # Webhook Setup and Integration
 
-This guide covers setting up the breakglass authorization webhook in managed Kubernetes clusters to enable real-time access control based on active breakglass sessions.
+This guide covers setting up the breakglass authorization webhook for real-time access control.
+
+**Implementation:** [`webhook.go`](../pkg/webhook/)
 
 ## Overview
 
@@ -266,186 +268,106 @@ spec:
 
 ## Webhook Behavior
 
-### Request Processing
-
-The webhook receives `SubjectAccessReview` requests and:
-
-1. **Extract Request Details**: User, groups, resource, verb, namespace
-2. **Find Active Sessions**: Query for active `BreakglassSession` resources
-3. **Check DenyPolicies**: Evaluate any matching `DenyPolicy` resources
-4. **Make Decision**: Allow, deny, or pass through to next authorizer
-
 ### Decision Logic
 
-```pseudocode
-function authorize(request):
-    // Check for explicit deny policies first
-    if (matchesDenyPolicy(request)):
-        return DENY("Blocked by DenyPolicy")
-    
-    // Check for active breakglass sessions
-    sessions = findActiveSessions(request.user, request.cluster)
-    for session in sessions:
-        if (sessionAllowsRequest(session, request)):
-            return ALLOW("Authorized by BreakglassSession")
-    
-    // No breakglass authorization found - pass to next authorizer
-    return NO_OPINION()
-```
+The webhook evaluates requests in this order:
+
+1. **Check DenyPolicies** → Deny if matched
+2. **Check Active Sessions** → Allow if matched
+3. **Pass Through** → Let RBAC decide (no opinion)
 
 ### Response Codes
 
-- **Allowed**: Request explicitly authorized by breakglass session
-- **Denied**: Request explicitly denied by policy or security violation
-- **No Opinion**: No breakglass authorization applies (fallback to RBAC)
-
-### SubjectAccessReview reason strings
-
-When the webhook explicitly Allows or Denies a request it includes a short human-readable `status.reason` string in the `SubjectAccessReview` response. Example reasons you may see in logs or API responses:
-
-- `Authorized by BreakglassSession` — an active session matched the requester and requested resource.
-- `Allowed by Escalation` — an escalation rule permitted the action for the requester's group/identity.
-- `Blocked by DenyPolicy` — an explicit deny matched the request and prevented authorization.
-- `No Breakglass Authorization` — the webhook had no matching session or escalation to allow the action and returned no opinion.
-
-These strings are intentionally concise and may be extended in future versions. Do not rely on an exact string match in production code; prefer checking the boolean `status.allowed` field and any relevant audit logs.
+- **Allowed**: Authorized by active session
+- **Denied**: Blocked by policy or security rule
+- **No Opinion**: No breakglass authorization applies
 
 ## Security Considerations
 
 ### Network Security
 
-- **TLS Encryption**: Always use HTTPS for webhook communication
-- **Network Isolation**: Restrict network access between clusters and hub
-- **Firewall Rules**: Configure appropriate firewall rules for webhook traffic
+- Use HTTPS for all webhook communication
+- Restrict network access between clusters
+- Configure firewall rules for webhook traffic
 
-### Authentication Security
+### Authentication
 
-- **Token Rotation**: Regularly rotate webhook authentication tokens
-- **Strong Secrets**: Use cryptographically strong authentication credentials
-- **Least Privilege**: Grant minimal required permissions to webhook tokens
+- Rotate webhook tokens regularly
+- Use strong credentials
+- Grant minimal required permissions
 
-### Availability and Resilience
+### Availability
 
-- **Failure Policy**: Configure appropriate `failurePolicy` (Deny vs Allow)
-- **Timeout Settings**: Set reasonable timeout values (3-5 seconds)
-- **Monitoring**: Monitor webhook availability and response times
-- **Redundancy**: Consider multiple webhook endpoints for high availability
+- Set appropriate failure policy (Deny for security)
+- Configure reasonable timeout values (3-5s)
+- Monitor webhook availability
+- Consider redundancy for high availability
 
 ## Testing and Validation
 
-### Basic Connectivity Test
+### Basic Connectivity
 
 ```bash
-# Test webhook endpoint accessibility
-curl -k https://breakglass.example.com/authorize/my-cluster-name/healthz
-
-# Test with SubjectAccessReview
-kubectl create -f - <<EOF
-apiVersion: authorization.k8s.io/v1
-kind: SubjectAccessReview
-spec:
-  user: test-user@example.com
-  resourceAttributes:
-    verb: get
-    resource: pods
-    namespace: default
-EOF
+# Test webhook endpoint
+curl -k https://breakglass.example.com/authorize/my-cluster/healthz
 ```
 
 ### Authorization Testing
 
 ```bash
-# Test without breakglass session (should use RBAC)
+# Check permissions (uses RBAC)
 kubectl --as=user@example.com auth can-i get pods
 
-# Create breakglass session through API
-curl -X POST https://breakglass.example.com/api/v1/sessions \
-  -H "Content-Type: application/json" \
-  -d '{"cluster": "my-cluster-name", "user": "user@example.com", "requestedGroup": "cluster-admin"}'
-
-# Test with active session (should be allowed)
+# After creating a breakglass session, re-check (may allow)
 kubectl --as=user@example.com auth can-i get pods
-```
-
-### Performance Testing
-
-```bash
-# Measure webhook response time
-time kubectl --as=test-user@example.com auth can-i get pods
-
-# Load testing with multiple requests
-for i in {1..100}; do
-  kubectl --as=user-$i@example.com auth can-i get pods &
-done
-wait
 ```
 
 ## Troubleshooting
 
-### Common Issues
-
-#### Webhook Unreachable
+### Webhook Unreachable
 
 ```text
 Error: failed to call webhook: Post "https://breakglass.example.com/authorize/my-cluster": dial tcp: connection refused
 ```
 
-**Solutions:**
+Check:
 
-- Check network connectivity between API server and webhook
-- Verify DNS resolution
-- Check firewall rules
-- Validate TLS certificates
+- Network connectivity between API server and webhook
+- DNS resolution
+- Firewall rules
+- TLS certificates
 
-#### Authentication Failures
+### Authentication Failures
 
 ```text
 Error: Unauthorized (401)
 ```
 
-**Solutions:**
+Check:
 
-- Verify bearer token or client certificates
-- Check token expiration
-- Validate kubeconfig format
+- Bearer token validity
+- Client certificate validity
+- Kubeconfig format
 
-#### Timeout Issues
+### Timeout Issues
 
 ```text
 Error: context deadline exceeded
 ```
 
-**Solutions:**
+Check:
 
-- Increase webhook timeout in authorization config
-- Optimize webhook performance
-- Check network latency
+- Webhook timeout settings
+- Network latency
+- Webhook performance
 
-#### Certificate Issues
-
-```text
-Error: x509: certificate signed by unknown authority
-```
-
-**Solutions:**
-
-- Add CA certificate to webhook kubeconfig
-- Use `insecure-skip-tls-verify: true` for testing only
-- Ensure certificate chain is complete
-
-### Debugging Commands
+### Debugging
 
 ```bash
 # Check API server logs
 journalctl -u kubelet | grep authorization
 
-# Test webhook directly
-curl -X POST https://breakglass.example.com/authorize/my-cluster-name \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"apiVersion":"authorization.k8s.io/v1","kind":"SubjectAccessReview","spec":{"user":"test@example.com","resourceAttributes":{"verb":"get","resource":"pods"}}}'
-
-# Validate kubeconfig
+# Verify webhook kubeconfig
 kubectl --kubeconfig=/etc/kubernetes/breakglass-webhook-kubeconfig.yaml cluster-info
 
 # Check breakglass logs
@@ -454,29 +376,16 @@ kubectl logs -n breakglass-system deployment/breakglass-controller
 
 ## Production Deployment Checklist
 
-### Security
-
 - [ ] TLS certificates configured and valid
-- [ ] Strong authentication tokens generated and stored securely
+- [ ] Strong authentication tokens generated
 - [ ] Network policies restrict webhook access
-- [ ] Regular token rotation scheduled
-- [ ] Audit logging enabled
-
-### Reliability
-
-- [ ] Webhook timeout configured appropriately (3-5s)
-- [ ] Failure policy set to `Deny` for security
-- [ ] Monitoring and alerting configured
-- [ ] Health check endpoints working
-- [ ] Backup webhook endpoints configured
-
-### Testing
-
-- [ ] Basic connectivity tested
+- [ ] Token rotation scheduled
+- [ ] Webhook timeout set (3-5s)
+- [ ] Failure policy set to Deny
+- [ ] Monitoring configured
+- [ ] Health checks working
+- [ ] Connectivity tested
 - [ ] Authorization flow validated
-- [ ] Performance testing completed
-- [ ] Failure scenarios tested
-- [ ] Rollback procedure documented
 
 ## Related Resources
 

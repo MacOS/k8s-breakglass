@@ -1,89 +1,76 @@
 # Documentation Index
 
-This directory contains comprehensive documentation for the breakglass system.
+Complete documentation for the breakglass privilege escalation system.
 
-## Quick Start
+## Getting Started
 
-1. **[Webhook Setup](./webhook-setup.md)** - Configure Kubernetes authorization webhooks for your clusters
-2. **[ClusterConfig](./cluster-config.md)** - Set up cluster connections and configuration
-3. **[BreakglassEscalation](./breakglass-escalation.md)** - Create escalation policies and approval workflows
+- **[Quick Start](./quickstart.md)** - Get up and running in 5 minutes
+- **[Installation](./installation.md)** - Complete step-by-step installation
+- **[Building](./building.md)** - Build breakglass from source
+- **[Troubleshooting](./troubleshooting.md)** - Common issues and solutions
 
-## Custom Resources
+## Quick Reference
 
-- **[ClusterConfig](./cluster-config.md)** - Configure and manage tenant clusters for breakglass integration
-- **[BreakglassEscalation](./breakglass-escalation.md)** - Define who can request privileges, for which clusters, and who can approve
-- **[BreakglassSession](./breakglass-session.md)** - Active or requested privilege escalation sessions
-- **[DenyPolicy](./deny-policy.md)** - Explicit access restrictions that override other permissions
+1. [Webhook Setup](./webhook-setup.md) - Configure authorization webhooks
+2. [ClusterConfig](./cluster-config.md) - Connect tenant clusters
+3. [BreakglassEscalation](./breakglass-escalation.md) - Define escalation policies
+4. [Advanced Features](./advanced-features.md) - Request reasons, self-approval prevention, domain restrictions
 
-## Integration
+## Resources
 
-- **[Webhook Setup](./webhook-setup.md)** - Complete guide for setting up Kubernetes authorization webhooks
-- **[API Reference](./api-reference.md)** - REST API documentation for external integrations
+- **[ClusterConfig](./cluster-config.md)** - Manage tenant cluster connections
+- **[BreakglassEscalation](./breakglass-escalation.md)** - Define privilege escalation policies
+- **[BreakglassSession](./breakglass-session.md)** - Active escalation sessions
+- **[DenyPolicy](./deny-policy.md)** - Explicit access restrictions
+- **[Webhook Setup](./webhook-setup.md)** - Authorization webhook configuration
+- **[API Reference](./api-reference.md)** - REST API endpoints and usage
+- **[Metrics](./metrics.md)** - Prometheus metrics and monitoring
+- **[Advanced Features](./advanced-features.md)** - Request/approval reasons, self-approval prevention, domain restrictions
 
 ## Architecture
 
-The breakglass system consists of several key components:
+```text
+┌──────────────────────────────────────────────────────────────┐
+│                    Hub Cluster                               │
+│  ┌──────────────────────────────────────────────────────┐   │
+│  │  Breakglass Controller (webhook + API + policy)      │   │
+│  └──────────────────────────────────────────────────────┘   │
+│  ┌──────────────────────────────────────────────────────┐   │
+│  │  ClusterConfig  BreakglassEscalation  DenyPolicy     │   │
+│  └──────────────────────────────────────────────────────┘   │
+└──────────────────────────────────────────────────────────────┘
+                           │
+                           │ (webhook endpoint)
+                           ▼
+┌──────────────────────────────────────────────────────────────┐
+│              Tenant Cluster (any of many)                    │
+│  ┌──────────────────────────────────────────────────────┐   │
+│  │  Kubernetes API Server + Authorization Webhook      │   │
+│  └──────────────────────────────────────────────────────┘   │
+└──────────────────────────────────────────────────────────────┘
+```
 
-### Hub Cluster
+## Workflow
 
-- **Breakglass Controller** - Manages custom resources and provides REST API
-- **Frontend Application** - Web UI for users and approvers
-- **ClusterConfig Resources** - Configuration for managed tenant clusters
-- **BreakglassEscalation Resources** - Policy definitions for privilege escalation
-
-### Tenant Clusters
-
-- **Authorization Webhook** - Intercepts Kubernetes authorization requests
-- **Webhook Configuration** - Points to breakglass controller for authorization decisions
-
-### Flow Overview
-
-1. **Policy Definition** - Administrators create `BreakglassEscalation` policies
-2. **Cluster Configuration** - `ClusterConfig` resources define tenant cluster connections
-3. **Session Request** - Users request elevated privileges through the frontend or API
-4. **Approval Process** - Designated approvers review and approve/deny requests
-5. **Active Session** - Approved sessions grant temporary elevated privileges
-6. **Authorization** - Kubernetes webhook validates requests against active sessions
-7. **Audit & Cleanup** - All activities are logged and sessions auto-expire
-
-## Security Model
-
-- **Principle of Least Privilege** - Users can only escalate to predefined groups
-- **Time-Bounded Access** - All sessions have expiration times
-- **Approval Required** - Sensitive escalations require explicit approval
-- **Audit Logging** - All activities are logged for compliance
-- **Deny Policies** - Explicit restrictions that cannot be overridden
-- **Real-time Enforcement** - Authorization decisions made at request time
+1. **Policy** - Admins create `BreakglassEscalation` policies
+2. **Request** - Users request elevated access
+3. **Approval** - Approvers review and approve/deny
+4. **Active** - Approved sessions grant temporary privileges
+5. **Webhook** - Kubernetes validates requests against active sessions
+6. **Expiry** - Sessions auto-expire after set duration
 
 ## Common Use Cases
 
-### Emergency Production Access
+- **Production Incidents** - Emergency cluster-admin access with approval
+- **Development** - Self-service namespace-admin for debugging
+- **Contractors** - Limited-time access with manager approval
+- **Compliance** - All escalations logged and auditable
 
-- Site reliability engineers need temporary cluster-admin access during incidents
-- Security team approves emergency requests outside business hours
-- Sessions automatically expire after incident resolution
+## Key Features
 
-### Development Self-Service
-
-- Developers can self-approve namespace-admin access in non-production environments
-- Time-bounded access for debugging and troubleshooting
-- Automatic approval for trusted environments
-
-### Compliance and Auditing
-
-- All privilege escalations are logged with justification
-- Deny policies enforce regulatory requirements
-- Regular access reviews through session history
-
-### External Contractor Access
-
-- Limited-time access for external contractors
-- Require approval from contract managers
-- Restrict to specific clusters and time windows
-
-## Getting Help
-
-- Check the specific resource documentation for detailed examples
-- Review the [API Reference](./api-reference.md) for integration details  
-- See the main [README.md](../README.md) for basic setup and configuration
-- Look at sample configurations in the [config/samples/](../config/samples/) directory
+- Time-bounded access (expires automatically)
+- Mandatory approvals for sensitive escalations
+- Explicit deny policies override all permissions
+- Real-time webhook-based authorization
+- Complete audit trail for compliance
+- Multi-cluster support

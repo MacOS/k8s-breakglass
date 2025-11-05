@@ -4,150 +4,173 @@
 [![REUSE Compliance Check](https://github.com/telekom/k8s-breakglass/actions/workflows/reuse-compliance.yml/badge.svg)](https://github.com/telekom/k8s-breakglass/actions/workflows/reuse-compliance.yml)
 [![OpenSSF Scorecard Score](https://api.scorecard.dev/projects/github.com/telekom/k8s-breakglass/badge)](https://scorecard.dev/viewer/?uri=github.com/telekom/k8s-breakglass/badge)
 
-Kubernetes Breakglass allows to temporarily aquire elevated privileges through an auditable request-approval workflow. It can be used to grant elevated access to a Kubernetes cluster in emergency situations.
+**Kubernetes Breakglass** is a secure, auditable privilege escalation system for Kubernetes clusters. It enables users to request temporary elevated access through a structured approval workflow, with real-time webhook integration for immediate Kubernetes RBAC enforcement.
 
-## Overview
+## 🎯 Key Features
 
-The application consists of a backend service and a web application. The backend implements a imperative API that allows to request and approve elevated privileges, and a Kubernetes authorization webhook to integrate with Kubernetes' RBAC system. The web application serves as a simple user frontend, but can be replaced with a custom interface as well.
+- **Request-Approval Workflow** - Users request access, approvers review and grant temporary privileges
+- **Real-time Authorization Webhook** - Integrated with Kubernetes' authorization system for immediate enforcement
+- **Time-Bounded Access** - Sessions expire automatically after configured duration
+- **Audit Trail** - Full history of requests, approvals, and access events
+- **Flexible Authorization** - Define escalations, approvers, and access restrictions using Kubernetes CRDs
+- **Multi-Cluster Support** - Centralized hub manages access across multiple spoke clusters
+- **OIDC/JWT Authentication** - Integrates with identity providers like Keycloak and Azure AD
+- **Web UI & REST API** - User-friendly interface with programmatic access
 
-The backend service is configured through custom resources (`BreakglassEscalation`, `ClusterConfig`, and `DenyPolicy`), and also uses custom resources for persistence (`BreakglassSession`).
+## Architecture
 
-## Documentation
+**Components:**
 
-Comprehensive documentation is available in the [docs/](./docs/) directory:
+- **Backend Service** - Go REST API server with Kubernetes webhook support
+- **Frontend** - TypeScript/Vue web application for request management
+- **Custom Resources** - Configuration and persistence via Kubernetes CRDs:
+  - `BreakglassEscalation` - Define available privilege escalations
+  - `BreakglassSession` - Track active sessions
+  - `ClusterConfig` - Configure managed clusters
+  - `DenyPolicy` - Restrict access by policy
 
-- **[ClusterConfig](./docs/cluster-config.md)** - Configure and manage tenant clusters
-- **[BreakglassEscalation](./docs/breakglass-escalation.md)** - Define escalation policies and approval workflows
-- **[BreakglassSession](./docs/breakglass-session.md)** - Manage active privilege escalation sessions
-- **[DenyPolicy](./docs/deny-policy.md)** - Create explicit access restrictions
-- **[Webhook Setup](./docs/webhook-setup.md)** - Configure Kubernetes authorization webhooks
-- **[API Reference](./docs/api-reference.md)** - Complete REST API documentation
+**Design:** Hub-and-spoke topology where a central breakglass service manages temporary access for multiple Kubernetes clusters.
 
-## Configuration
+## 📚 Documentation
 
-The application is configured using a `config.yaml`:
+Complete documentation is available in the [docs/](./docs/) directory:
+
+**Getting Started:**
+- **[Quick Start](./docs/quickstart.md)** - Get running in 5 minutes
+- **[Installation](./docs/installation.md)** - Complete step-by-step installation guide
+- **[Building](./docs/building.md)** - Build from source
+
+**Resources & Configuration:**
+- **[BreakglassEscalation](./docs/breakglass-escalation.md)** - Define available privilege escalations
+- **[BreakglassSession](./docs/breakglass-session.md)** - Session lifecycle and state management
+- **[ClusterConfig](./docs/cluster-config.md)** - Configure managed clusters
+- **[DenyPolicy](./docs/deny-policy.md)** - Create access restrictions and policies
+
+**Integration & Advanced Topics:**
+- **[Webhook Setup](./docs/webhook-setup.md)** - Integrate with Kubernetes authorization
+- **[API Reference](./docs/api-reference.md)** - REST API endpoints and examples
+- **[Metrics](./docs/metrics.md)** - Prometheus metrics, alerting, and dashboards
+- **[Advanced Features](./docs/advanced-features.md)** - Request reasons, approval reasons, self-approval prevention, domain restrictions
+- **[Troubleshooting](./docs/troubleshooting.md)** - Common issues and solutions
+
+## ⚙️ Configuration
+
+The application is configured via a `config.yaml` file. See [`config.example.yaml`](./config.example.yaml) for a complete example.
+
+**Core Configuration:**
 
 ```yaml
 server:
   listenAddress: :8080
-  tlsCertFile: /some/file.crt # optional
-  tlsKeyFile: /some/file.key # optional for https
+  tlsCertFile: /etc/tls/cert.crt      # optional
+  tlsKeyFile: /etc/tls/key.key        # optional, for HTTPS
+
 authorizationserver:
-  url: http://127.0.0.1:8080
-  jwksEndpoint: "realms/master/protocol/openid-connect/certs" # sample for keycloak
+  url: https://keycloak.example.com   # OIDC provider URL
+  jwksEndpoint: "realms/master/protocol/openid-connect/certs"
+
 frontend:
-  oidcAuthority: http://127.0.0.1:8080/realms/master
+  oidcAuthority: https://keycloak.example.com/realms/master
   oidcClientID: breakglass-ui
-  baseURL: http://localhost:8080
+  baseURL: https://breakglass.example.com
+
 mail:
-  host: 127.0.0.1
-  port: 1025
+  host: smtp.example.com              # Mail server for notifications
+  port: 587
   insecureSkipVerify: false
+
 kubernetes:
-  context: "" # kubectl config context if empty default will be used
-  oidcPrefixes: # List of prefixes to strip from user groups for cluster matching
+  context: ""                         # kubectl config context (empty = default)
+  oidcPrefixes:                       # Prefixes to strip from OIDC groups
     - "keycloak:"
     - "oidc:"
-
 ```
 
 ### OIDC Group Prefix Handling
 
-When users authenticate through OIDC providers like Keycloak, their groups often come with provider-specific prefixes (e.g., `keycloak:admin`, `oidc:developers`). However, cluster RBAC rules typically use clean group names without prefixes (e.g., `admin`, `developers`).
+When users authenticate via OIDC providers like Keycloak, groups often include provider-specific prefixes (e.g., `keycloak:admin`, `oidc:developers`). Kubernetes RBAC typically uses clean group names (e.g., `admin`, `developers`).
 
-The `oidcPrefixes` configuration allows the breakglass system to automatically strip these prefixes when comparing user groups from the OIDC provider with escalation rules in the cluster.
+The `oidcPrefixes` configuration automatically strips these prefixes when matching user groups to escalation rules.
 
-**Configuration Example:**
+**Example Flow:**
 
-```yaml
-kubernetes:
-  oidcPrefixes:
-    - "keycloak:"
-    - "oidc:"
-    - "ldap:"
-```
+| Step | Value |
+|------|-------|
+| 1. User's OIDC groups | `["keycloak:admin", "keycloak:developers"]` |
+| 2. After prefix stripping | `["admin", "developers"]` |
+| 3. Matched against escalations | Uses clean names like `admin` |
 
-**How it works:**
+This ensures escalation policies reference clean group names, independent of the OIDC provider.
 
-1. User authenticates via Keycloak and gets groups: `["keycloak:admin", "keycloak:developers", "system:authenticated"]`
-2. Breakglass strips configured prefixes: `["admin", "developers", "system:authenticated"]`
-3. These cleaned groups are used to match against escalation rules in `BreakglassEscalation` resources
-4. This ensures that escalation rules can use clean group names like `admin` instead of provider-specific names like `keycloak:admin`
+## 🚀 Deployment
 
-**Note:** The first matching prefix is stripped from each group. If no prefixes match, the group name remains unchanged.
-See `config.example.yaml` for reference.
+### Quick Start
 
-## Building Docker Images
+Get breakglass running in 5 minutes with the dev deployment:
 
 ```bash
-docker build -t breakglass:oss .
+# Deploy to local kind cluster with Keycloak and MailHog
+make deploy_dev
+
+# Access the application
+# Breakglass UI:  https://breakglass-dev:30081
+# Keycloak:       https://breakglass-dev:30083
+# MailHog:        http://breakglass-dev:30084
 ```
 
-The frontend uses the [telekom/scale](https://github.com/telekom/scale) framework, which comes with a neutral variant to be used for OSS.
-See it's [theming documentation](https://telekom.github.io/scale/?path=/docs/guidelines-customization-and-themes--page) for details on how to customize it.
+For production deployment, see the [Installation Guide](./docs/installation.md).
 
-## Kubernetes Deployment
-
-To deploy `CRD`, `RBAC` and application as `Deployment` configure `./config/default/config.yaml` with proper cluster
-related configuration and run:
+### Production Deployment
 
 ```bash
+# Edit configuration
+cp config.example.yaml config/default/config.yaml
+# ... customize settings ...
+
+# Deploy CRDs, RBAC, and application
 make deploy
 ```
 
-Make sure that the configured authorization server URL and JWKS endpoint are reachable by the *server* process.
-Note: the browser-side frontend no longer needs direct access to the authorization server when running with the
-embedded API proxy. The server exposes the OIDC discovery/JWKS proxy at `/api/oidc/authority/*` so the frontend will
-fetch discovery and JWKS from the API origin (avoids requiring a host-trusted Keycloak certificate for local e2e).
+See [Installation Guide](./docs/installation.md) for detailed setup steps.
 
-See `config/dev/resources/keycloak.yaml` for the sample Keycloak manifest used by the bundled kind setup script.
+### Building from Source
 
-### Dev environment
+**OSS Flavour (Recommended):**
 
 ```bash
-make deploy_dev
+# Build backend and OSS UI
+docker build -t breakglass:latest .
+
+# Or build just the backend
+go build -o bin/breakglass ./cmd/...
 ```
 
-Will perform similar deployment as standard `deploy`, but will additionally include deployment of keycloak and mailhog alongside
-with services pointing to their open ports. It also includes NodePort type services so that application can be instantly
-accessed.
+**UI Customization:**
 
-#### Accessing app through docker kind cluster
+The frontend uses the [telekom/scale](https://github.com/telekom/scale) framework. See its [theming documentation](https://telekom.github.io/scale/?path=/docs/guidelines-customization-and-themes--page) for customization options.
 
-It was tested for `kind` docker single cluster.
-Assuming your docker container has ip of `172.19.0.2` add following entry to `/etc/hosts`: `172.19.0.2      breakglass-dev`.
-Then you should be able to access main breakglass app under: `https://breakglass-dev:30081`, keycloak under: `https://breakglass-dev:30083`
-and mailhog under `http://breakglass-dev:30084`.
+#### ⚠️ Telekom UI Flavour
 
-#### First time configuring Keycloak
+The Telekom branded UI (`UI_FLAVOUR=telekom`) is proprietary to Deutsche Telekom and **must NOT be used outside Deutsche Telekom entities**.
 
-Go to `Clients` tab -> Create -> Add client called `breakglass-ui` or same as `breakglass-config.oidcClientID` -> Set
-correct `Valid Redirect URIs` and `Web Origins` (for testing and developement setting all `*` will work).
+- Contains proprietary Deutsche Telekom branding and customizations
+- Unauthorized use violates Deutsche Telekom's intellectual property rights
+- All non-Telekom organizations must use the OSS flavour (default)
+- The OSS flavour is fully functional and appropriate for all organizations
 
-## Configuring webhook on managed clusters
+## 🔗 Webhook Integration
 
-TODO
+The authorization webhook enables real-time enforcement of breakglass sessions. When a user attempts an action on a managed cluster, the webhook is called to determine if they have an active session granting the requested access.
 
-## Breakglass custom resources
+**Setup Overview:**
 
-### Session
+1. Configure the cluster's API server to use the breakglass webhook as an authorization plugin
+2. Create webhook kubeconfig pointing to the breakglass service
+3. Create `ClusterConfig` resource defining the cluster relationship
 
-`BreakglassSession` is used for storing information about permission
-extension request and its status regarding approval, rejection or expiration.
-Sessions are fully managed by breakglass, by provided CRUD REST endpoints.
+See [Webhook Setup Guide](./docs/webhook-setup.md) for complete configuration instructions.
 
-### Escalation
-
-`BreglassEscalation` lets breakglass storage (CustomResource) cluster admins define possible transitions for breakglass
-sessions.
-Breakglass manager only lists escalations and they should be created manually using other means like `kubectl` tool.
-For BreakglassSession to be created there must be a corresponding BreaglassEscalation.
-Single escalation defines group that user with specific user/cluster id and currently assigned groups can request for.
-It also includes information about possible approvers.
-
-## Creating BreakglassEscalations
-
-## Cluster Configuration
+**API Server Configuration Example:**
 
 ```yaml
 apiVersion: apiserver.config.k8s.io/v1beta1
@@ -162,47 +185,62 @@ authorizers:
     webhook:
       unauthorizedTTL: 30s
       timeout: 3s
-      subjectAccessReviewVersion: v1
-      matchConditionSubjectAccessReviewVersion: v1
       failurePolicy: Deny
       connectionInfo:
         type: KubeConfigFile
-        kubeConfigFile: /etc/kubernetes/authorization-kubeconfig.yaml
-      matchConditions: 
-      - expression: "'system:authenticated' in request.groups"
-      - expression: "!request.user.startsWith('system:')"
-      - expression: "!('system:serviceaccounts' in request.groups)"
+        kubeConfigFile: /etc/kubernetes/breakglass-authz.kubeconfig
 ```
 
-```yaml
-apiVersion: v1
-kind: Config
-clusters:
-  - name: breakglass
-    cluster:
-      certificate-authority-data: <CA BASE64 encoded>
-  server: https://breakglass.mydomain/api/breakglass/webhook/authorize/<clustername>
-users:
-  - name: kube-apiserver
-    user:
-      token: dGhpc2lzanVzdGFkdW1teXRva2VuYXN3ZXNob3VsZG5vdG5lZWRvbmVoZXJl # dummy token
-current-context: webhook
-contexts:
-  - context:
-      cluster: breakglass
-      user: kube-apiserver
-    name: webhook
-```
+## 📖 Custom Resources
 
-# Licensing
+### BreakglassEscalation
+
+Defines available privilege escalations for users. Specifies target groups, approvers, and constraints.
+
+- **Example:** "Allow developers to request temporary cluster-admin access for 2 hours"
+- **Approvers:** Can be individuals or groups
+- **Constraints:** Max duration, idle timeout, request reasons, self-approval policy
+
+See [BreakglassEscalation Documentation](./docs/breakglass-escalation.md) for details.
+
+### BreakglassSession
+
+Represents an active or historical privilege escalation request. Tracks state through the approval workflow.
+
+- **Lifecycle:** Pending → Approved/Rejected → Expired/Withdrawn
+- **Audit Trail:** Request time, approver, reason, expiration
+- **Managed by:** Breakglass API (users don't create directly)
+
+See [BreakglassSession Documentation](./docs/breakglass-session.md) for details.
+
+### ClusterConfig
+
+Configures a managed cluster's relationship to the breakglass hub.
+
+- **Purpose:** Define cluster identity and webhook endpoint
+- **Usage:** Connect managed clusters to the central breakglass service
+
+See [ClusterConfig Documentation](./docs/cluster-config.md) for details.
+
+### DenyPolicy
+
+Restrict access across clusters and namespaces based on resource attributes.
+
+- **Example:** "Deny access to secrets namespace"
+- **Scope:** Cluster-wide or tenant-scoped
+- **Precedence:** Evaluated before escalations
+
+See [DenyPolicy Documentation](./docs/deny-policy.md) for details.
+
+# License
 
 Copyright (c) Deutsche Telekom AG
 
-All content in this repository is licensed under at least one of the licenses found in [./LICENSES](./LICENSES); you may not use this file, or any other file in this repository, except in compliance with the Licenses. 
+All content in this repository is licensed under at least one of the licenses found in [./LICENSES](./LICENSES); you may not use this file, or any other file in this repository, except in compliance with the Licenses.
 You may obtain a copy of the Licenses by reviewing the files found in the [./LICENSES](./LICENSES) folder.
 
 Unless required by applicable law or agreed to in writing, software distributed under the Licenses is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See in the [./LICENSES](./LICENSES) folder for the specific language governing permissions and limitations under the Licenses.
 
-This project follows the [REUSE standard for software licensing](https://reuse.software/). 
-Each file contains copyright and license information, and license texts can be found in the [./LICENSES](./LICENSES) folder. For more information visit https://reuse.software/.
-You can find a guide for developers at https://telekom.github.io/reuse-template/.
+This project follows the [REUSE standard for software licensing](https://reuse.software/). Each file contains copyright and license information, and license texts can be found in the [./LICENSES](./LICENSES) folder. For more information, visit [https://reuse.software/](https://reuse.software/).
+
+You can find a guide for developers at [https://telekom.github.io/reuse-template/](https://telekom.github.io/reuse-template/).

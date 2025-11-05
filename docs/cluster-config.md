@@ -1,14 +1,16 @@
 # ClusterConfig Custom Resource
 
-The `ClusterConfig` custom resource enables the breakglass hub cluster to manage and connect to tenant clusters for authorization checks and breakglass session management.
+The `ClusterConfig` custom resource enables the breakglass hub cluster to manage and connect to tenant clusters.
+
+**Type Definition:** [`ClusterConfig`](../api/v1alpha1/cluster_config_types.go)
 
 ## Overview
 
-`ClusterConfig` defines metadata and authentication details for managed tenant clusters, allowing the breakglass controller to:
+`ClusterConfig` enables the breakglass controller to:
 
-- Perform Subject Access Reviews (SAR) on target clusters
+- Connect to managed tenant clusters
+- Perform authorization checks (Subject Access Reviews)
 - Validate breakglass session permissions
-- Enable cross-cluster authorization decisions
 
 ## Resource Definition
 
@@ -195,23 +197,22 @@ current-context: webhook
 
 ### Security
 
-- Use dedicated service accounts with minimal required permissions for kubeconfig
+- Use admin-level credentials only for the breakglass service account
 - Rotate kubeconfig credentials regularly
-- Store secrets securely with appropriate RBAC restrictions
-- Use TLS for all cluster communications
+- Store secrets securely with appropriate RBAC
+- Use TLS for all communications
 
 ### Performance
 
-- Set appropriate `qps` and `burst` values based on cluster size and expected load
-- Monitor cluster connectivity and adjust timeouts if needed
-- Use regional proximity between hub and tenant clusters when possible
+- Set appropriate `qps` and `burst` based on cluster size
+- Use close network proximity between hub and tenant clusters
+- Monitor connectivity
 
 ### Management
 
-- Use descriptive names that reflect cluster purpose and environment
-- Include metadata fields (`tenant`, `environment`, `location`) for easier management
-- Implement monitoring for `ClusterConfig` status and connectivity
-- Maintain documentation of cluster relationships and dependencies
+- Use descriptive names reflecting purpose and environment
+- Include metadata (`tenant`, `environment`, `location`)
+- Monitor `ClusterConfig` status regularly
 
 ## Troubleshooting
 
@@ -241,11 +242,12 @@ current-context: webhook
 # Check ClusterConfig status
 kubectl get clusterconfig <name> -o yaml
 
-# Verify referenced secret
+# Verify referenced secret exists
 kubectl get secret <secret-name> -n <namespace>
 
-# Test connectivity manually
-kubectl --kubeconfig=<extracted-kubeconfig> auth can-i '*' '*'
+# Extract and test kubeconfig
+kubectl get secret <secret-name> -n <namespace> -o jsonpath='{.data.kubeconfig}' | base64 -d > /tmp/test.kubeconfig
+kubectl --kubeconfig=/tmp/test.kubeconfig auth can-i '*' '*'
 ```
 
 ## Related Resources

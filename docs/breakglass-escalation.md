@@ -2,6 +2,8 @@
 
 The `BreakglassEscalation` custom resource defines escalation policies that determine who can request elevated privileges, for which clusters, and who must approve these requests.
 
+**Type Definition:** [`BreakglassEscalation`](../api/v1alpha1/breakglass_escalation_types.go)
+
 ## Overview
 
 `BreakglassEscalation` enables controlled privilege escalation by:
@@ -9,7 +11,6 @@ The `BreakglassEscalation` custom resource defines escalation policies that dete
 - Defining allowed privilege escalation paths
 - Specifying approval requirements
 - Controlling cluster and group access scope
-- Providing audit trails for escalation policies
 
 ## Resource Definition
 
@@ -85,17 +86,33 @@ approvers:
 
 ## Optional Fields
 
-### maxDuration
+### maxValidFor
 
-Maximum duration for breakglass sessions created from this escalation:
+Maximum time a session will remain active after approval:
 
 ```yaml
-maxDuration: "2h"    # 2 hours
-maxDuration: "30m"   # 30 minutes  
-maxDuration: "4h"    # 4 hours
+maxValidFor: "2h"    # 2 hours (default: 1h)
+maxValidFor: "30m"   # 30 minutes
+maxValidFor: "4h"    # 4 hours
 ```
 
-If not specified, system default applies (typically 1 hour).
+### idleTimeout
+
+Maximum idle time before a session is revoked:
+
+```yaml
+idleTimeout: "1h"    # Revoke after 1 hour idle (default: 1h)
+idleTimeout: "30m"   # Revoke after 30 minutes idle
+```
+
+### retainFor
+
+How long to retain expired/revoked sessions before deletion:
+
+```yaml
+retainFor: "720h"    # Keep for 30 days (default: 720h)
+retainFor: "168h"    # Keep for 7 days
+```
 
 ### clusterConfigRefs
 
@@ -130,9 +147,7 @@ spec:
   approvers:
     users: ["security-lead@example.com", "platform-lead@example.com"]
     groups: ["security-team"]
-  maxDuration: "1h"
-  requireJustification: true
-  autoApprove: false
+  maxValidFor: "1h"
 ```
 
 ### Development Self-Service
@@ -148,40 +163,26 @@ spec:
     clusters: ["dev-cluster", "staging-cluster"]
     groups: ["developers"]
   approvers:
-    groups: ["tech-leads", "senior-developers"]
-  maxDuration: "4h"
-  requireJustification: false
-  autoApprove: true
-  conditions:
-    - type: "Environment"
-      operator: "In"
-      values: ["development", "staging"]
+    groups: ["tech-leads"]
+  maxValidFor: "4h"
 ```
 
-### Business Hours Only
+### Staging with Approval
 
 ```yaml
 apiVersion: breakglass.t-caas.telekom.com/v1alpha1
 kind: BreakglassEscalation
 metadata:
-  name: business-hours-escalation
+  name: staging-escalation
 spec:
   escalatedGroup: "admin-readonly"
   allowed:
-    clusters: ["prod-cluster"]
+    clusters: ["staging-cluster"]
     groups: ["support-team"]
   approvers:
     users: ["manager@example.com"]
-  maxDuration: "2h"
-  requireJustification: true
-  conditions:
-    - type: "TimeWindow"
-      schedule:
-        timezone: "UTC"
-        allowedTimeRanges:
-          - start: "08:00"
-            end: "18:00"
-            days: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
+  maxValidFor: "2h"
+  idleTimeout: "1h"
 ```
 
 ### External Contractor Access
@@ -199,17 +200,7 @@ spec:
   approvers:
     users: ["contract-manager@example.com"]
     groups: ["security-team"]
-  maxDuration: "30m"
-  requireJustification: true
-  autoApprove: false
-  conditions:
-    - type: "TimeWindow"
-      schedule:
-        timezone: "UTC"
-        allowedTimeRanges:
-          - start: "09:00"
-            end: "17:00"
-            days: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
+  maxValidFor: "30m"
 ```
 
 ## Escalation Matching
@@ -221,11 +212,14 @@ A user can request an escalation if:
 1. **Group Membership**: User belongs to one of the groups in `allowed.groups`
 2. **Direct Inclusion**: User is listed in `allowed.users`
 3. **Cluster Access**: Target cluster is in `allowed.clusters`
-4. **Conditions**: All specified conditions are met (time windows, environment, etc.)
 
-### Cluster matching details
+### Cluster Matching
 
-- The controller matches requested clusters against `spec.allowed.clusters` (exact match) and against the `spec.clusterConfigRefs` entries (which may contain cluster identifiers or names). Tests and webhook lookups rely on `Allowed.Clusters` to quickly find escalations for a target cluster; when authoring escalation objects, include cluster names that will be requested by clients (for example the `cluster` values used in the API). If you use `clusterConfigRefs`, make them contain recognizable identifiers (or the cluster name) used by callers.
+The controller matches requested clusters against `spec.allowed.clusters` and `spec.clusterConfigRefs`:
+
+- Use `allowed.clusters` with exact cluster names that clients will request
+- Use `clusterConfigRefs` to reference `ClusterConfig` resource names
+- Ensure the value used in webhook URLs matches these identifiers exactly
 
 ### Approval Requirements
 
@@ -233,114 +227,31 @@ An escalation request can be approved by:
 
 1. **Direct Approvers**: Users listed in `approvers.users`
 2. **Group Approvers**: Users who belong to groups in `approvers.groups`
-3. **Auto-Approval**: If `autoApprove: true` is set
-
-### Priority and Conflicts
-
-When multiple escalations match a request:
-
-1. **Most Specific**: Escalations with more specific cluster/group combinations take precedence
-2. **Least Privileged**: If conflicts exist, the escalation granting the least privilege is chosen
-3. **Manual Override**: System administrators can override automatic selection
 
 ## Session Creation Flow
 
-1. **User Request**: User requests breakglass access specifying target cluster and desired group
-2. **Escalation Matching**: System finds matching `BreakglassEscalation` policies
+1. **User Request**: User requests elevated access for a specific cluster and group
+2. **Policy Matching**: System finds matching `BreakglassEscalation` policies
 3. **Eligibility Check**: Verify user is allowed to request this escalation
-4. **Condition Validation**: Check time windows and other conditions
-5. **Session Creation**: Create `BreakglassSession` in pending state
-6. **Approval Process**: Route to approvers or auto-approve based on policy
-7. **Session Activation**: Activate session once approved
-
-```yaml
-# Resulting BreakglassSession
-apiVersion: breakglass.t-caas.telekom.com/v1alpha1
-kind: BreakglassSession
-metadata:
-  name: user-escalation-abc123
-spec:
-  cluster: prod-cluster-1
-  user: sre@example.com
-  grantedGroup: cluster-admin
-  expiresAt: "2024-01-15T11:30:00Z"
-  justification: "Database connectivity issues requiring admin access"
-status:
-  phase: Approved
-  approvedBy: security-lead@example.com
-  approvedAt: "2024-01-15T10:30:00Z"
-```
+4. **Session Creation**: Create `BreakglassSession` in pending state
+5. **Approval Process**: Route to approvers or auto-approve based on policy
+6. **Session Activation**: Activate once approved, or reject if denied
+7. **Webhook Authorization**: Token grants temporary group membership during webhook evaluation
 
 ## Best Practices
 
 ### Security Design
 
 - **Principle of Least Privilege**: Grant minimum necessary permissions
-- **Time Bounds**: Always set reasonable `maxDuration` limits
-- **Approval Requirements**: Require approval for production access
-- **Justification**: Require justification for audit purposes
+- **Time Bounds**: Set reasonable `maxValidFor` limits (typically 1-4 hours)
+- **Approval Requirements**: Require approval for sensitive escalations
+- **Separate Policies**: Use distinct escalations for different access levels
 
 ### Operational Excellence
 
-- **Clear Naming**: Use descriptive names that indicate purpose and scope
-- **Documentation**: Document the purpose and use cases for each escalation
-- **Regular Review**: Periodically review and update escalation policies
-- **Monitoring**: Track usage patterns and approval rates
-
-### Group Management
-
-- **Granular Groups**: Create specific groups for different escalation scenarios
-- **Group Hierarchy**: Align with organizational structure and responsibilities
-- **External Identity**: Integrate with external identity providers for group membership
-
-## Monitoring and Auditing
-
-### Escalation Metrics
-
-The breakglass controller provides metrics for escalation usage:
-
-- `breakglass_escalation_requests_total` - Total escalation requests
-- `breakglass_escalation_approvals_total` - Total approvals/denials
-- `breakglass_escalation_duration` - Session duration statistics
-
-### Audit Logging
-
-All escalation activities are logged with structured data:
-
-```json
-{
-  "level": "info",
-  "msg": "Escalation requested",
-  "escalation": "prod-emergency-access",
-  "user": "sre@example.com",
-  "cluster": "prod-cluster-1",
-  "justification": "Database connectivity issues",
-  "timestamp": "2024-01-15T10:30:00Z"
-}
-```
-
-## Troubleshooting
-
-### User Cannot Request Escalation
-
-1. **Check Group Membership**: Verify user belongs to allowed groups
-2. **Cluster Access**: Ensure target cluster is in `allowed.clusters`
-3. **Time Conditions**: Check if current time falls within allowed windows
-4. **Policy Status**: Confirm escalation policy is active and valid
-
-### Approval Issues
-
-1. **Approver Availability**: Verify approvers are available and have access
-2. **Group Membership**: Check if approvers belong to specified groups
-3. **Notification Setup**: Ensure approval notifications are working
-4. **Auto-Approval**: Check if auto-approval is properly configured
-
-### Session Not Activated
-
-1. **Approval Status**: Verify session has been approved
-2. **Expiration**: Check session hasn't expired before activation
-3. **Cluster Connectivity**: Ensure cluster configuration is valid
-4. **RBAC Setup**: Verify target group exists in cluster RBAC
+- **Clear Naming**: Use descriptive names indicating purpose and scope
+- **Group Alignment**: Align escalation groups with organizational structure
+- **Regular Review**: Periodically audit and update escalation policies
 
 ## Related Resources
 
