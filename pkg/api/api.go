@@ -179,7 +179,26 @@ func (s *Server) SetIdentityProvider(idpConfig *config.IdentityProviderConfig) {
 
 	if idpConfig != nil {
 		s.idpConfig = idpConfig
-		s.log.Sugar().Infow("identity_provider_loaded", "type", idpConfig.Type, "authority", idpConfig.Authority)
+
+		// Determine the OIDC authority URL
+		authority := idpConfig.Authority
+		if idpConfig.Keycloak != nil && idpConfig.Keycloak.BaseURL != "" && idpConfig.Keycloak.Realm != "" {
+			// For Keycloak, construct the authority with realm path
+			// Keycloak's OIDC discovery endpoint is at: {BaseURL}/realms/{Realm}/.well-known/openid-configuration
+			baseURL := strings.TrimRight(idpConfig.Keycloak.BaseURL, "/")
+			authority = fmt.Sprintf("%s/realms/%s", baseURL, idpConfig.Keycloak.Realm)
+		}
+
+		// Parse the authority URL for OIDC proxy requests
+		if authority != "" {
+			if u, err := url.Parse(authority); err == nil {
+				s.oidcAuthority = u
+			} else {
+				s.log.Sugar().Warnw("failed_to_parse_oidc_authority", "authority", authority, "error", err)
+			}
+		}
+
+		s.log.Sugar().Infow("identity_provider_loaded", "type", idpConfig.Type, "authority", authority)
 		// Record metric for provider type
 		metrics.IdentityProviderLoaded.WithLabelValues(idpConfig.Type).Inc()
 	}
@@ -365,6 +384,15 @@ func (s *Server) handleOIDCProxy(c *gin.Context) {
 	}
 	start := time.Now()
 	proxyPath := c.Param("proxyPath")
+
+	// Validate proxyPath to prevent SSRF attacks: must be a relative path
+	// Check that it doesn't contain a scheme (://) or absolute URL
+	if strings.Contains(proxyPath, "://") || strings.HasPrefix(proxyPath, "//") {
+		s.log.Sugar().Warnw("oidc_proxy_invalid_path", "path", proxyPath)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid proxy path: absolute URLs not allowed"})
+		return
+	}
+
 	// Safe join using parsed authority rather than raw configured string
 	base := strings.TrimRight(s.oidcAuthority.String(), "/")
 	target := base + proxyPath

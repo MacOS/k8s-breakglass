@@ -168,23 +168,6 @@ func main() {
 	defer cancel()
 	go breakglass.EscalationStatusUpdater{Log: log, K8sClient: escalationManager.Client, Resolver: escalationManager.Resolver, Interval: 10 * time.Minute}.Start(ctx)
 
-	// Start IdentityProvider watcher to detect and reload config changes
-	// This enables zero-downtime updates for cert rotation, secret updates, etc.
-	// The watcher monitors ALL IdentityProvider CRs in the cluster, supporting
-	// multi-provider scenarios where multiple providers can be configured.
-	idpWatcher := config.NewIdentityProviderWatcher(kubeClient, log)
-	idpWatcher.WithReloadCallback(func(reloadCtx context.Context) error {
-		return server.ReloadIdentityProvider(idpLoader)
-	})
-	idpWatcher.WithDebounce(2 * time.Second)
-
-	go func() {
-		done := idpWatcher.Start(ctx)
-		<-done
-		log.Warn("IdentityProvider watcher stopped")
-	}()
-	log.Infow("IdentityProvider watcher started", "debounce", "2s")
-
 	// Event recorder for emitting Kubernetes events (persisted to API server)
 	restCfg := ctrl.GetConfigOrDie()
 	kubeClientset, err := kubernetes.NewForConfig(restCfg)
@@ -366,6 +349,28 @@ func main() {
 				return
 			}
 			log.Infow("Successfully registered IdentityProvider webhook")
+
+			// Register IdentityProvider Reconciler with controller-runtime manager
+			log.Debugw("Setting up IdentityProvider reconciler")
+			idpReconciler := config.NewIdentityProviderReconciler(
+				mgr.GetClient(),
+				log,
+				func(reloadCtx context.Context) error {
+					return server.ReloadIdentityProvider(idpLoader)
+				},
+			)
+			idpReconciler.WithErrorHandler(func(ctx context.Context, err error) {
+				log.Errorw("IdentityProvider reconciliation error", "error", err)
+				metrics.IdentityProviderLoadFailed.WithLabelValues("reconciler_error").Inc()
+			})
+			idpReconciler.WithEventRecorder(mgr.GetEventRecorderFor("breakglass-controller"))
+			idpReconciler.WithResyncPeriod(10 * time.Minute)
+
+			if err := idpReconciler.SetupWithManager(mgr); err != nil {
+				log.Warnw("Failed to setup IdentityProvider reconciler with manager", "error", err)
+				return
+			}
+			log.Infow("Successfully registered IdentityProvider reconciler", "resyncPeriod", "10m")
 
 			// Start manager (blocks) but we run it in a goroutine so it doesn't prevent the API server
 			log.Infow("Starting controller-runtime manager")

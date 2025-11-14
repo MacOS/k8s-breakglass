@@ -54,8 +54,17 @@ type BreakglassSessionController struct {
 }
 
 // IsSessionPendingApproval returns true if the session is not rejected and not yet approved (pending approval)
+// and the approval timeout has not passed. It returns false if the session has timed out.
 func IsSessionPendingApproval(session v1alpha1.BreakglassSession) bool {
-	return session.Status.ApprovedAt.IsZero() && session.Status.RejectedAt.IsZero()
+	// Must not be approved or rejected
+	if !session.Status.ApprovedAt.IsZero() || !session.Status.RejectedAt.IsZero() {
+		return false
+	}
+	// If TimeoutAt is set and has passed, session is no longer pending (it has timed out)
+	if !session.Status.TimeoutAt.IsZero() && time.Now().After(session.Status.TimeoutAt.Time) {
+		return false
+	}
+	return true
 }
 
 func (BreakglassSessionController) BasePath() string {
@@ -242,6 +251,13 @@ func (wc BreakglassSessionController) handleRequestBreakglassSession(c *gin.Cont
 	if err := wc.validateSessionRequest(request); err != nil {
 		reqLog.With("error", err, "request", request).Warn("Invalid session request parameters")
 		c.JSON(http.StatusUnprocessableEntity, "missing input request data: "+err.Error())
+		return
+	}
+
+	// Sanitize reason field to prevent injection attacks
+	if err := request.SanitizeReason(); err != nil {
+		reqLog.With("error", err).Warn("Reason field sanitization failed")
+		c.JSON(http.StatusUnprocessableEntity, "invalid reason: "+err.Error())
 		return
 	}
 
@@ -467,6 +483,60 @@ func (wc BreakglassSessionController) handleRequestBreakglassSession(c *gin.Cont
 		spec.MaxValidFor = matchedEsc.Spec.MaxValidFor
 		spec.RetainFor = matchedEsc.Spec.RetainFor
 		spec.IdleTimeout = matchedEsc.Spec.IdleTimeout
+
+		// Validate and apply custom duration if provided
+		if request.Duration > 0 {
+			// Parse max allowed duration from string (e.g., "1h", "3600s")
+			d, err := time.ParseDuration(matchedEsc.Spec.MaxValidFor)
+			if err != nil {
+				reqLog.Warnw("Failed to parse MaxValidFor duration", "error", err, "value", matchedEsc.Spec.MaxValidFor)
+				c.JSON(http.StatusInternalServerError, "invalid escalation duration configuration")
+				return
+			}
+			maxAllowed := int64(d.Seconds())
+			if err := request.ValidateDuration(maxAllowed); err != nil {
+				reqLog.Warnw("Duration validation failed", "error", err, "requestedDuration", request.Duration, "maxAllowed", maxAllowed)
+				c.JSON(http.StatusUnprocessableEntity, "invalid duration: "+err.Error())
+				return
+			}
+			// Convert custom duration to Go duration string (e.g., "1h30m")
+			customDuration := time.Duration(request.Duration) * time.Second
+			spec.MaxValidFor = customDuration.String()
+			reqLog.Debugw("Custom duration applied", "duration", request.Duration, "defaultMaxValidFor", matchedEsc.Spec.MaxValidFor, "customMaxValidFor", spec.MaxValidFor)
+		}
+
+		// Store scheduled start time if provided
+		if request.ScheduledStartTime != "" {
+			// Parse ISO 8601 datetime
+			scheduledTime, err := time.Parse(time.RFC3339, request.ScheduledStartTime)
+			if err != nil {
+				reqLog.Warnw("Failed to parse scheduledStartTime", "error", err, "value", request.ScheduledStartTime)
+				c.JSON(http.StatusUnprocessableEntity, "invalid scheduledStartTime format (expected ISO 8601)")
+				return
+			}
+
+			// Ensure scheduled time is in the future
+			now := time.Now()
+			if scheduledTime.Before(now) {
+				reqLog.Warnw("scheduledStartTime is in the past",
+					"requestedTime", request.ScheduledStartTime,
+					"parsedUTC", scheduledTime.Format(time.RFC3339),
+					"nowUTC", now.Format(time.RFC3339),
+					"nowLocal", now.Local().Format(time.RFC3339),
+					"parsedLocal", scheduledTime.Local().Format(time.RFC3339),
+					"timeDiffSeconds", now.Unix()-scheduledTime.Unix())
+				c.JSON(http.StatusUnprocessableEntity, "scheduledStartTime must be in the future")
+				return
+			}
+
+			spec.ScheduledStartTime = &metav1.Time{Time: scheduledTime}
+			reqLog.Debugw("Scheduled start time set",
+				"scheduledStartTimeISO", request.ScheduledStartTime,
+				"scheduledTimeUTC", scheduledTime.Format(time.RFC3339),
+				"scheduledTimeLocal", scheduledTime.Local().Format(time.RFC3339),
+				"nowUTC", now.Format(time.RFC3339),
+				"secondsInFuture", scheduledTime.Unix()-now.Unix())
+		}
 	}
 
 	bs := v1alpha1.BreakglassSession{Spec: spec}
@@ -510,7 +580,7 @@ func (wc BreakglassSessionController) handleRequestBreakglassSession(c *gin.Cont
 	safeCluster := toRFC1123Subdomain(request.Clustername)
 	safeGroup := toRFC1123Subdomain(request.GroupName)
 	bs.GenerateName = fmt.Sprintf("%s-%s-", safeCluster, safeGroup)
-	if err := wc.sessionManager.AddBreakglassSession(ctx, bs); err != nil {
+	if err := wc.sessionManager.AddBreakglassSession(ctx, &bs); err != nil {
 		reqLog.Errorw("error while adding breakglass session", "error", err)
 		c.Status(http.StatusInternalServerError)
 		return
@@ -535,12 +605,9 @@ func (wc BreakglassSessionController) handleRequestBreakglassSession(c *gin.Cont
 		}
 	}
 
-	bs, err = wc.getActiveBreakglassSession(ctx, request.Username, request.Clustername, request.GroupName)
-	if err != nil && !errors.Is(err, ErrSessionNotFound) {
-		reqLog.Errorw("error while getting breakglass session", "error", err)
-		c.Status(http.StatusInternalServerError)
-		return
-	}
+	// Note: bs already has its Name populated by AddBreakglassSession (passed as pointer).
+	// Do not try to fetch it again as this can race with informer cache population.
+	// Instead, reuse the bs object that was created.
 
 	approvalTimeout := time.Hour // TODO: make configurable per escalation/cluster
 
@@ -1403,20 +1470,61 @@ func (wc BreakglassSessionController) sendOnRequestEmail(bs v1alpha1.BreakglassS
 		"approverGroupsToShow", approverGroupsToShow,
 		"session", bs.Name)
 
+	// Build TimeRemaining string for UI/UX
+	timeRemaining := ""
+	var expiryTime time.Time
+	if bs.Spec.ScheduledStartTime != nil {
+		expiryTime = bs.Spec.ScheduledStartTime.Time
+		if bs.Spec.MaxValidFor != "" {
+			if d, err := time.ParseDuration(bs.Spec.MaxValidFor); err == nil && d > 0 {
+				expiryTime = bs.Spec.ScheduledStartTime.Add(d)
+			}
+		} else {
+			expiryTime = bs.Spec.ScheduledStartTime.Add(1 * time.Hour)
+		}
+	} else {
+		// Immediate session
+		expiryTime = time.Now()
+		if bs.Spec.MaxValidFor != "" {
+			if d, err := time.ParseDuration(bs.Spec.MaxValidFor); err == nil && d > 0 {
+				expiryTime = time.Now().Add(d)
+			}
+		} else {
+			expiryTime = time.Now().Add(1 * time.Hour)
+		}
+	}
+	remainingDuration := time.Until(expiryTime)
+	if remainingDuration > 0 {
+		timeRemaining = formatDuration(remainingDuration)
+	}
+
+	// Build RequestedApprovalGroups string
+	requestedApprovalGroupsStr := ""
+	if matchedEscalation != nil && len(matchedEscalation.Spec.Approvers.Groups) > 0 {
+		groupNames := matchedEscalation.Spec.Approvers.Groups
+		if len(groupNames) == 1 {
+			requestedApprovalGroupsStr = groupNames[0]
+		} else {
+			requestedApprovalGroupsStr = strings.Join(groupNames, " OR ")
+		}
+	}
+
 	body, err := mail.RenderBreakglassSessionRequest(mail.RequestBreakglassSessionMailParams{
-		SubjectEmail:        requestEmail,
-		SubjectFullName:     requestUsername,
-		RequestingUsername:  requestUsername,
-		RequestedCluster:    bs.Spec.Cluster,
-		RequestedUsername:   bs.Spec.User,
-		RequestedGroup:      bs.Spec.GrantedGroup,
-		RequestReason:       bs.Spec.RequestReason,
-		ScheduledStartTime:  scheduledStartTimeStr,
-		CalculatedExpiresAt: calculatedExpiresAtStr,
-		FormattedDuration:   formattedDurationStr,
-		RequestedAt:         requestedAtStr,
-		ApproverGroups:      approverGroupsToShow,
-		URL:                 fmt.Sprintf("%s/review?name=%s", wc.config.Frontend.BaseURL, bs.Name),
+		SubjectEmail:            requestEmail,
+		SubjectFullName:         requestUsername,
+		RequestingUsername:      requestUsername,
+		RequestedCluster:        bs.Spec.Cluster,
+		RequestedUsername:       bs.Spec.User,
+		RequestedGroup:          bs.Spec.GrantedGroup,
+		RequestReason:           bs.Spec.RequestReason,
+		ScheduledStartTime:      scheduledStartTimeStr,
+		CalculatedExpiresAt:     calculatedExpiresAtStr,
+		FormattedDuration:       formattedDurationStr,
+		RequestedAt:             requestedAtStr,
+		ApproverGroups:          approverGroupsToShow,
+		RequestedApprovalGroups: requestedApprovalGroupsStr,
+		TimeRemaining:           timeRemaining,
+		URL:                     fmt.Sprintf("%s/review?name=%s", wc.config.Frontend.BaseURL, bs.Name),
 		BrandingName: func() string {
 			if wc.config.Frontend.BrandingName != "" {
 				return wc.config.Frontend.BrandingName
