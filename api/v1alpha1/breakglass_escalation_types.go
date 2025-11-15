@@ -18,7 +18,6 @@ package v1alpha1
 
 import (
 	"context"
-	"fmt"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -26,6 +25,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
 
 // BreakglassEscalationSpec defines the desired state of BreakglassEscalation.
@@ -164,68 +164,37 @@ type BreakglassEscalation struct {
 	Status BreakglassEscalationStatus `json:"status,omitempty"`
 }
 
-//+kubebuilder:webhook:path=/validate-breakglass-t-caas-telekom-com-v1alpha1-breakglassescalation,mutating=false,failurePolicy=fail,sideEffects=None,groups=breakglass.t-caas.telekom.com,resources=breakglassescalations,verbs=create;update,versions=v1alpha1,name=vbreakglassescalation.kb.io,admissionReviewVersions={v1,v1beta1}
+//+kubebuilder:webhook:path=/validate-breakglass-v1alpha1-breakglassescalation,mutating=false,failurePolicy=fail,sideEffects=None,groups=breakglass.t-caas.telekom.com,resources=breakglassescalations,verbs=create;update,versions=v1alpha1,name=breakglassescalation.validation.breakglass.t-caas.telekom.com,admissionReviewVersions={v1,v1beta1}
 
-// checkNameUniqueness checks if the escalation name is unique cluster-wide.
-// Returns field errors if a conflicting name is found in another namespace.
-func (be *BreakglassEscalation) checkNameUniqueness() field.ErrorList {
-	var errs field.ErrorList
-
-	if webhookCache != nil {
-		var list BreakglassEscalationList
-		if err := webhookCache.List(context.Background(), &list); err == nil {
-			for _, item := range list.Items {
-				if item.Name == be.Name && item.Namespace != be.Namespace {
-					msg := fmt.Sprintf("name must be unique cluster-wide; conflicting namespace=%s", item.Namespace)
-					errs = append(errs, field.Duplicate(field.NewPath("metadata").Child("name"), msg))
-					break
-				}
-			}
-		}
-	} else if webhookClient != nil {
-		var list BreakglassEscalationList
-		if err := webhookClient.List(context.Background(), &list); err == nil {
-			for _, item := range list.Items {
-				if item.Name == be.Name && item.Namespace != be.Namespace {
-					msg := fmt.Sprintf("name must be unique cluster-wide; conflicting namespace=%s", item.Namespace)
-					errs = append(errs, field.Duplicate(field.NewPath("metadata").Child("name"), msg))
-					break
-				}
-			}
-		}
-	}
-
-	return errs
-}
-
-// ValidateCreate implements webhook.Validator so a webhook will be registered for the type
-func (be *BreakglassEscalation) ValidateCreate() error {
+// ValidateCreate implements webhook.CustomValidator so a webhook will be registered for the type
+func (be *BreakglassEscalation) ValidateCreate(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
 	var allErrs field.ErrorList
 	if be.Spec.EscalatedGroup == "" {
 		allErrs = append(allErrs, field.Required(field.NewPath("spec").Child("escalatedGroup"), "escalatedGroup is required"))
 	}
 
-	// global name uniqueness: prefer cache-backed listing
-	allErrs = append(allErrs, be.checkNameUniqueness()...)
+	allErrs = append(allErrs, ensureClusterWideUniqueName(ctx, &BreakglassEscalationList{}, be.Namespace, be.Name, field.NewPath("metadata").Child("name"))...)
 
 	if len(allErrs) == 0 {
-		return nil
+		return nil, nil
 	}
-	return apierrors.NewInvalid(schema.GroupKind{Group: "breakglass.t-caas.telekom.com", Kind: "BreakglassEscalation"}, be.Name, allErrs)
+	return nil, apierrors.NewInvalid(schema.GroupKind{Group: "breakglass.t-caas.telekom.com", Kind: "BreakglassEscalation"}, be.Name, allErrs)
 }
 
-func (be *BreakglassEscalation) ValidateUpdate(old runtime.Object) error {
+func (be *BreakglassEscalation) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (admission.Warnings, error) {
 	var allErrs field.ErrorList
 	// no immutability enforced
-	allErrs = append(allErrs, be.checkNameUniqueness()...)
+	allErrs = append(allErrs, ensureClusterWideUniqueName(ctx, &BreakglassEscalationList{}, be.Namespace, be.Name, field.NewPath("metadata").Child("name"))...)
 
 	if len(allErrs) == 0 {
-		return nil
+		return nil, nil
 	}
-	return apierrors.NewInvalid(schema.GroupKind{Group: "breakglass.t-caas.telekom.com", Kind: "BreakglassEscalation"}, be.Name, allErrs)
+	return nil, apierrors.NewInvalid(schema.GroupKind{Group: "breakglass.t-caas.telekom.com", Kind: "BreakglassEscalation"}, be.Name, allErrs)
 }
 
-func (be *BreakglassEscalation) ValidateDelete() error { return nil }
+func (be *BreakglassEscalation) ValidateDelete(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
+	return nil, nil
+}
 
 func (be *BreakglassEscalation) SetupWebhookWithManager(mgr ctrl.Manager) error {
 	webhookClient = mgr.GetClient()
@@ -234,6 +203,7 @@ func (be *BreakglassEscalation) SetupWebhookWithManager(mgr ctrl.Manager) error 
 	}
 	return ctrl.NewWebhookManagedBy(mgr).
 		For(be).
+		WithValidator(be).
 		Complete()
 }
 
