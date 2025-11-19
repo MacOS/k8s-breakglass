@@ -7,12 +7,14 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/MicahParks/keyfunc"
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v4"
 	"github.com/telekom/k8s-breakglass/pkg/config"
+	"github.com/telekom/k8s-breakglass/pkg/metrics"
 	"go.uber.org/zap"
 )
 
@@ -21,8 +23,17 @@ const (
 )
 
 type AuthHandler struct {
+	// Multi-IDP support: map issuer URL to JWKS
+	jwksCache map[string]*keyfunc.JWKS
+	jwksMutex sync.RWMutex
+
+	// Single-IDP fallback (for backward compatibility)
 	jwks *keyfunc.JWKS
-	log  *zap.SugaredLogger
+
+	log *zap.SugaredLogger
+
+	// IDPLoader for multi-IDP mode
+	idpLoader *config.IdentityProviderLoader
 }
 
 func NewAuth(log *zap.SugaredLogger, cfg config.Config) *AuthHandler {
@@ -60,9 +71,99 @@ func NewAuth(log *zap.SugaredLogger, cfg config.Config) *AuthHandler {
 	}
 
 	return &AuthHandler{
-		jwks: jwks,
-		log:  log,
+		jwks:      jwks,
+		jwksCache: make(map[string]*keyfunc.JWKS),
+		log:       log,
 	}
+}
+
+// WithIdentityProviderLoader sets the IDP loader for multi-IDP support
+func (a *AuthHandler) WithIdentityProviderLoader(loader *config.IdentityProviderLoader) *AuthHandler {
+	a.idpLoader = loader
+	return a
+}
+
+// getJWKSForIssuer returns the JWKS for a given issuer URL, loading it if necessary
+// For single-IDP mode (no idpLoader), returns the default JWKS
+func (a *AuthHandler) getJWKSForIssuer(ctx context.Context, issuer string) (*keyfunc.JWKS, error) {
+	// Single-IDP mode: use default JWKS
+	if a.idpLoader == nil {
+		return a.jwks, nil
+	}
+
+	// Multi-IDP mode: load JWKS for specific issuer
+	a.jwksMutex.RLock()
+	cachedJwks, exists := a.jwksCache[issuer]
+	a.jwksMutex.RUnlock()
+	if exists {
+		return cachedJwks, nil
+	}
+
+	// Load IDP config by issuer
+	idpCfg, err := a.idpLoader.LoadIdentityProviderByIssuer(ctx, issuer)
+	if err != nil {
+		a.log.Warnw("failed to load IDP config for issuer", "issuer", issuer, "error", err)
+		// Don't expose the issuer in error message to prevent reconnaissance attacks
+		return nil, fmt.Errorf("invalid or unknown identity provider")
+	}
+
+	// Build JWKS endpoint URL from IDP's configuration
+	if idpCfg.Authority == "" {
+		return nil, fmt.Errorf("IDP %s has no authority configured", idpCfg.Name)
+	}
+
+	// For Keycloak IDPs, use the Keycloak-specific JWKS endpoint
+	// This avoids relying on .well-known discovery which may not be available at the realm URL
+	var jwksURL string
+	if idpCfg.Keycloak != nil && idpCfg.Keycloak.BaseURL != "" && idpCfg.Keycloak.Realm != "" {
+		// Keycloak: {baseURL}/realms/{realm}/protocol/openid-connect/certs
+		baseURL := strings.TrimRight(idpCfg.Keycloak.BaseURL, "/")
+		jwksURL = fmt.Sprintf("%s/realms/%s/protocol/openid-connect/certs", baseURL, idpCfg.Keycloak.Realm)
+	} else {
+		// Standard OIDC: use .well-known/openid-configuration discovery
+		// If the authority is the realm URL, we need to go up one level to the OIDC discovery endpoint
+		// For standard OIDC providers, this should work: {authority}/.well-known/openid-configuration
+		// But for some providers, we may need to extract just the base authority
+		// Try appending /.well-known/jwks.json directly to authority first (common for many OIDC providers)
+		jwksURL = fmt.Sprintf("%s/.well-known/jwks.json", strings.TrimRight(idpCfg.Authority, "/"))
+	}
+
+	// Create JWKS options
+	options := keyfunc.Options{
+		RefreshInterval: time.Hour,
+		RefreshTimeout:  time.Second * 10,
+		RefreshErrorHandler: func(err error) {
+			a.log.Warnf("failed to refresh JWKS for issuer %s: %v", issuer, err)
+		},
+	}
+
+	// Configure TLS if needed (from IDP config)
+	if idpCfg.Keycloak != nil && idpCfg.Keycloak.CertificateAuthority != "" {
+		pool := x509.NewCertPool()
+		if ok := pool.AppendCertsFromPEM([]byte(idpCfg.Keycloak.CertificateAuthority)); !ok {
+			return nil, fmt.Errorf("could not parse CA certificate for IDP %s", idpCfg.Name)
+		}
+		transport := &http.Transport{TLSClientConfig: &tls.Config{RootCAs: pool}}
+		options.Client = &http.Client{Transport: transport}
+	} else if idpCfg.Keycloak != nil && idpCfg.Keycloak.InsecureSkipVerify {
+		transport := &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}
+		options.Client = &http.Client{Transport: transport}
+		a.log.Warnf("TLS verification disabled for IDP %s (dev/e2e only)", idpCfg.Name)
+	}
+
+	// Fetch JWKS
+	jwks, err := keyfunc.Get(jwksURL, options)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load JWKS for IDP %s (%s): %w", idpCfg.Name, issuer, err)
+	}
+
+	// Cache it
+	a.jwksMutex.Lock()
+	a.jwksCache[issuer] = jwks
+	a.jwksMutex.Unlock()
+
+	a.log.Debugw("loaded JWKS for issuer", "issuer", issuer, "idp_name", idpCfg.Name)
+	return jwks, nil
 }
 
 func (a *AuthHandler) Middleware() gin.HandlerFunc {
@@ -71,6 +172,13 @@ func (a *AuthHandler) Middleware() gin.HandlerFunc {
 			c.Next()
 			return
 		}
+
+		// Record JWT validation request
+		mode := "single-idp"
+		if a.idpLoader != nil {
+			mode = "multi-idp"
+		}
+
 		authHeader := c.GetHeader(AuthHeaderKey)
 		// delete the header to avoid logging it by accident
 		c.Request.Header.Del(AuthHeaderKey)
@@ -83,29 +191,137 @@ func (a *AuthHandler) Middleware() gin.HandlerFunc {
 		}
 		bearer := authHeader[7:]
 
-		claims := jwt.MapClaims{}
-		token, err := jwt.ParseWithClaims(bearer, &claims, a.jwks.Keyfunc)
-		if err != nil {
-			// Attempt single forced JWKS refresh if kid missing
-			if strings.Contains(err.Error(), "key ID") {
-				c.Set("jwks_refresh_attempt", true)
-				if rErr := a.jwks.Refresh(context.Background(), keyfunc.RefreshOptions{}); rErr == nil {
-					token, err = jwt.ParseWithClaims(bearer, &claims, a.jwks.Keyfunc)
-				}
-			}
-		}
+		// Parse JWT without verification first to extract issuer and basic claims
+		unverifiedClaims := jwt.MapClaims{}
+		parser := jwt.NewParser()
+		_, _, err := parser.ParseUnverified(bearer, unverifiedClaims)
 		if err != nil {
 			c.JSON(http.StatusUnauthorized, gin.H{
-				"error": err.Error(),
+				"error": "Invalid JWT format",
 			})
 			c.Abort()
 			return
 		}
 
+		// Extract issuer from claims for multi-IDP mode
+		var issuer string
+		if iss, ok := unverifiedClaims["iss"]; ok {
+			issuer, _ = iss.(string)
+		}
+
+		// Record validation attempt
+		metrics.JWTValidationRequests.WithLabelValues(issuer, mode).Inc()
+		startTime := time.Now()
+
+		// Get appropriate JWKS (based on issuer or default)
+		var jwks *keyfunc.JWKS
+		var selectedIDP string
+
+		if a.idpLoader != nil && issuer != "" {
+			// Multi-IDP mode: load JWKS for specific issuer
+			// Record cache check
+			a.jwksMutex.RLock()
+			_, cacheHit := a.jwksCache[issuer]
+			a.jwksMutex.RUnlock()
+
+			if cacheHit {
+				metrics.JWKSCacheHits.WithLabelValues(issuer).Inc()
+			} else {
+				metrics.JWKSCacheMisses.WithLabelValues(issuer).Inc()
+			}
+
+			loadedJwks, err := a.getJWKSForIssuer(c.Request.Context(), issuer)
+			if err != nil {
+				a.log.Debugw("failed to get JWKS for issuer", "issuer", issuer, "error", err)
+				metrics.JWTValidationFailure.WithLabelValues(issuer, "jwks_load_failed").Inc()
+
+				// Try to provide helpful error message with IDP suggestions
+				idpName, idpLookupErr := a.idpLoader.GetIDPNameByIssuer(c.Request.Context(), issuer)
+				errorMsg := fmt.Sprintf("unable to verify token for issuer %s: %v", issuer, err)
+				if idpLookupErr == nil && idpName != "" {
+					errorMsg = fmt.Sprintf("token issuer '%s' is not configured. Please use the '%s' identity provider to log in.", issuer, idpName)
+				}
+
+				c.JSON(http.StatusUnauthorized, gin.H{
+					"error":  errorMsg,
+					"issuer": issuer,
+				})
+				c.Abort()
+				return
+			}
+			jwks = loadedJwks
+			idpName, err := a.idpLoader.GetIDPNameByIssuer(c.Request.Context(), issuer)
+			if err != nil {
+				a.log.Debugw("failed to get IDP name by issuer", "issuer", issuer, "error", err)
+			} else {
+				selectedIDP = idpName
+			}
+		} else if a.idpLoader != nil && issuer == "" {
+			// Multi-IDP mode but no issuer in token: require issuer claim
+			metrics.JWTValidationFailure.WithLabelValues("", "missing_issuer").Inc()
+			c.JSON(http.StatusUnauthorized, gin.H{
+				"error": "No issuer (iss) claim found in token. Please ensure you are logged in with a valid identity provider.",
+			})
+			c.Abort()
+			return
+		} else {
+			// Single-IDP mode: use default JWKS (issuer claim optional for backward compatibility)
+			jwks = a.jwks
+		}
+
+		// Verify and parse JWT with selected JWKS
+		claims := jwt.MapClaims{}
+		token, err := jwt.ParseWithClaims(bearer, &claims, jwks.Keyfunc)
+		if err != nil {
+			// Attempt single forced JWKS refresh if kid missing
+			if strings.Contains(err.Error(), "key ID") {
+				c.Set("jwks_refresh_attempt", true)
+				if rErr := jwks.Refresh(context.Background(), keyfunc.RefreshOptions{}); rErr == nil {
+					token, err = jwt.ParseWithClaims(bearer, &claims, jwks.Keyfunc)
+				}
+			}
+		}
+		if err != nil {
+			// Record failure with reason
+			failureReason := "verification_failed"
+			if strings.Contains(err.Error(), "key ID") {
+				failureReason = "key_id_not_found"
+			} else if strings.Contains(err.Error(), "signature") {
+				failureReason = "invalid_signature"
+			} else if strings.Contains(err.Error(), "expired") {
+				failureReason = "token_expired"
+			}
+			metrics.JWTValidationFailure.WithLabelValues(issuer, failureReason).Inc()
+
+			errorMsg := "Token verification failed"
+			if issuer != "" {
+				errorMsg = fmt.Sprintf("Token verification failed for issuer '%s'. Please re-authenticate with the correct identity provider.", issuer)
+			}
+			c.JSON(http.StatusUnauthorized, gin.H{
+				"error":   errorMsg,
+				"issuer":  issuer,
+				"details": err.Error(),
+			})
+			c.Abort()
+			return
+		}
+
+		// Record successful validation with duration
+		metrics.JWTValidationSuccess.WithLabelValues(issuer).Inc()
+		metrics.JWTValidationDuration.WithLabelValues(issuer).Observe(time.Since(startTime).Seconds())
+
 		// Extract core identity claims
 		user_id := claims["sub"]
 		email := claims["email"]
 		username := claims["preferred_username"]
+
+		// Multi-IDP: Store issuer and IDP name for downstream use
+		if issuer != "" {
+			c.Set("issuer", issuer)
+		}
+		if selectedIDP != "" {
+			c.Set("identity_provider_name", selectedIDP)
+		}
 
 		// Attach raw claims for downstream debugging if needed
 		// Note: this is only used for debug logs and should not be exposed to end users.

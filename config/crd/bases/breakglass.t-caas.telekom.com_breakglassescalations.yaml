@@ -67,14 +67,16 @@ spec:
                   clusters:
                     description: |-
                       clusters is a list of clusters this escalation can be used for.
-                      todo: implement globbing (or regex?) support
+                      Supports exact string matching. Globbing (wildcards) and regex patterns are not yet supported.
+                      Future enhancement: Consider adding globbing (e.g., "prod-*") or regex support for cluster name matching.
                     items:
                       type: string
                     type: array
                   groups:
                     description: |-
                       groups is a list of groups this escalation can be used by.
-                      todo: implement globbing (or regex?) support
+                      Supports exact string matching. Globbing (wildcards) and regex patterns are not yet supported.
+                      Future enhancement: Consider adding globbing (e.g., "admin-*") or regex support for group name matching.
                     items:
                       type: string
                     type: array
@@ -83,6 +85,38 @@ spec:
                 description: |-
                   allowedApproverDomains can restrict approvers to specific email domains for this escalation.
                   If omitted, cluster-level defaults are used.
+                items:
+                  type: string
+                type: array
+              allowedIdentityProviders:
+                description: |-
+                  allowedIdentityProviders specifies which IdentityProvider CRs can use this escalation.
+                  If empty or unset, the escalation accepts any IdentityProvider allowed by the cluster
+                  (from ClusterConfig.IdentityProviderRefs, or all enabled providers if cluster is unrestricted).
+                  If set, only users authenticated via one of the named providers can use this escalation.
+                  Names should match the metadata.name of IdentityProvider resources.
+                  The intersection of cluster-allowed and escalation-allowed IDPs is used.
+                  NOTE: This field is mutually exclusive with AllowedIdentityProvidersForRequests and AllowedIdentityProvidersForApprovers.
+                items:
+                  type: string
+                type: array
+              allowedIdentityProvidersForApprovers:
+                description: |-
+                  allowedIdentityProvidersForApprovers specifies which IdentityProvider CRs can APPROVE this escalation.
+                  If empty, defaults to AllowedIdentityProviders (or cluster defaults if that is also unset).
+                  If set, only users authenticated via one of the named providers can approve this escalation.
+                  This field is mutually exclusive with AllowedIdentityProviders.
+                  When set, AllowedIdentityProvidersForRequests must also be set (or both can be left empty).
+                items:
+                  type: string
+                type: array
+              allowedIdentityProvidersForRequests:
+                description: |-
+                  allowedIdentityProvidersForRequests specifies which IdentityProvider CRs can REQUEST this escalation.
+                  If empty, defaults to AllowedIdentityProviders (or cluster defaults if that is also unset).
+                  If set, only users authenticated via one of the named providers can request this escalation.
+                  This field is mutually exclusive with AllowedIdentityProviders.
+                  When set, AllowedIdentityProvidersForApprovers must also be set (or both can be left empty).
                 items:
                   type: string
                 type: array
@@ -100,6 +134,12 @@ spec:
                       (true) or optional (false).
                     type: boolean
                 type: object
+              approvalTimeout:
+                default: 1h
+                description: |-
+                  approvalTimeout is the maximum amount of time allowed for an approver to approve a session for this escalation.
+                  If this duration elapses without approval, the session expires and transitions to ApprovalTimeout state.
+                type: string
               approvers:
                 description: approvers specifies who is allowed to approve this escalation.
                 properties:
@@ -218,6 +258,31 @@ spec:
                 additionalProperties:
                   type: string
                 description: Status of group resolution
+                type: object
+              groupSyncErrors:
+                description: |-
+                  groupSyncErrors contains error messages from failed IDP group syncs.
+                  Each entry describes which IDP failed and why.
+                  Empty if GroupSyncStatus is "Success".
+                items:
+                  type: string
+                type: array
+              groupSyncStatus:
+                description: |-
+                  groupSyncStatus indicates the current status of group member synchronization from IDPs.
+                  Possible values: "Success" (all IDPs synced), "PartialFailure" (some IDPs failed), "Failed" (all IDPs failed)
+                type: string
+              idpGroupMemberships:
+                additionalProperties:
+                  additionalProperties:
+                    items:
+                      type: string
+                    type: array
+                  type: object
+                description: |-
+                  idpGroupMemberships stores the per-IDP group membership hierarchy (before deduplication).
+                  Structure: map[idpName]map[groupName][]memberList
+                  This preserves full visibility into which users came from which IDP for debugging and auditing.
                 type: object
               requestCount:
                 description: Counters for tracking requests and approvals

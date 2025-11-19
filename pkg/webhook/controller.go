@@ -70,6 +70,131 @@ func (wc *WebhookController) finalizeReason(reason string, allowed bool, cluster
 	return fmt.Sprintf("%s; see %s", reason, link)
 }
 
+// getIDPHintFromIssuer retrieves issuer information from the SAR and returns a helpful
+// hint message about which identity provider authenticated the user, if available.
+// This helps users understand which IDP issued their token when authentication fails.
+func (wc *WebhookController) getIDPHintFromIssuer(ctx context.Context, sar *authorizationv1.SubjectAccessReview, reqLog *zap.SugaredLogger) string {
+	if sar == nil {
+		return ""
+	}
+
+	// Extract issuer from SAR.Spec.Extra field
+	// The "identity.t-caas.telekom.com/issuer" extra field contains the OIDC issuer URL
+	// that authenticated this user (extracted from their JWT token's 'iss' claim)
+	// Note: Extra fields in Kubernetes SubjectAccessReview are slice of strings, not single values
+	var issuer string
+	if sar.Spec.Extra != nil {
+		issuerValues := sar.Spec.Extra["identity.t-caas.telekom.com/issuer"]
+		if len(issuerValues) > 0 {
+			issuer = issuerValues[0]
+		}
+	}
+
+	// Fallback: also check annotations (for backward compatibility)
+	if issuer == "" && sar.ObjectMeta.Annotations != nil {
+		issuer = sar.ObjectMeta.Annotations["identity.t-caas.telekom.com/issuer"]
+	}
+
+	if issuer == "" {
+		// Issuer not provided, skip hint generation
+		return ""
+	}
+
+	reqLog.Debugw("Extracting IDP hint from issuer", "issuer", issuer)
+
+	// Try to find matching IdentityProvider by issuer
+	// This helps users know which provider authenticated them
+	idpList := &v1alpha1.IdentityProviderList{}
+	if err := wc.escalManager.List(ctx, idpList); err != nil {
+		reqLog.With("error", err.Error()).Warn("Failed to list IdentityProviders for IDP hint")
+		// Fallback: just mention the issuer
+		return fmt.Sprintf("(Your token was issued by %s)", issuer)
+	}
+
+	// Find IdentityProvider with matching issuer
+	for _, idp := range idpList.Items {
+		if idp.Spec.Issuer == issuer {
+			displayName := idp.Spec.DisplayName
+			if displayName == "" {
+				displayName = idp.Name
+			}
+			return fmt.Sprintf("(Your token was authenticated by '%s')", displayName)
+		}
+	}
+
+	// Issuer didn't match any configured IDP - provide helpful guidance
+	// List all available providers to help user identify the right one
+	var displayNames []string
+	for _, idp := range idpList.Items {
+		if idp.Spec.Disabled {
+			continue // skip disabled providers
+		}
+		displayName := idp.Spec.DisplayName
+		if displayName == "" {
+			displayName = idp.Name
+		}
+		displayNames = append(displayNames, displayName)
+	}
+
+	if len(displayNames) > 0 {
+		return fmt.Sprintf("(Your token issuer '%s' is not configured. Available providers: %s)", issuer, strings.Join(displayNames, ", "))
+	}
+
+	// Fallback: just mention the issuer
+	return fmt.Sprintf("(Your token was issued by %s)", issuer)
+}
+
+// isRequestFromAllowedIDP checks if a requestor from a specific issuer (IDP) is allowed to use a specific escalation.
+// If the escalation has AllowedIdentityProvidersForRequests, the issuer must match one of those.
+// If AllowedIdentityProvidersForRequests is empty, the request is allowed from any IDP (backward compatible).
+// This function maps IDP issuer URLs to IDP names for matching.
+func (wc *WebhookController) isRequestFromAllowedIDP(ctx context.Context, issuer string, esc *v1alpha1.BreakglassEscalation, reqLog *zap.SugaredLogger) bool {
+	// If no IDP restrictions, request is allowed from any IDP
+	if len(esc.Spec.AllowedIdentityProvidersForRequests) == 0 {
+		return true
+	}
+
+	// If multi-IDP mode is enabled but no issuer provided, deny by default
+	if issuer == "" {
+		reqLog.Debugw("Request missing issuer information required for multi-IDP validation", "escalation", esc.Name)
+		return false
+	}
+
+	// Find matching IdentityProvider by issuer
+	idpList := &v1alpha1.IdentityProviderList{}
+	if err := wc.escalManager.List(ctx, idpList); err != nil {
+		reqLog.With("error", err.Error()).Warn("Failed to list IdentityProviders for request validation")
+		// Fail open: if we can't load IDPs, don't block the request
+		return true
+	}
+
+	// Map issuer to IDP name
+	var matchedIDPName string
+	for _, idp := range idpList.Items {
+		if idp.Spec.Issuer == issuer && !idp.Spec.Disabled {
+			matchedIDPName = idp.Name
+			break
+		}
+	}
+
+	// If issuer doesn't match any enabled IDP, deny
+	if matchedIDPName == "" {
+		reqLog.Debugw("Request from unknown or disabled IDP issuer", "issuer", issuer, "escalation", esc.Name)
+		return false
+	}
+
+	// Check if the matched IDP is in the escalation's allowed list
+	for _, allowedIDPName := range esc.Spec.AllowedIdentityProvidersForRequests {
+		if allowedIDPName == matchedIDPName {
+			reqLog.Debugw("Request allowed: IDP in AllowedIdentityProvidersForRequests", "idp", matchedIDPName, "escalation", esc.Name)
+			return true
+		}
+	}
+
+	reqLog.Debugw("Request denied: IDP not in AllowedIdentityProvidersForRequests", "idp", matchedIDPName, "allowedIDPs", esc.Spec.AllowedIdentityProvidersForRequests, "escalation", esc.Name)
+	return false
+}
+
 type SubjectAccessReviewResponseStatus struct {
 	Allowed bool   `json:"allowed"`
 	Reason  string `json:"reason"`
@@ -202,13 +327,23 @@ func (wc *WebhookController) handleAuthorize(c *gin.Context) {
 		metrics.WebhookSARRequestsByAction.WithLabelValues(clusterName, "", "", "unknown", "", "").Inc()
 	}
 
-	groups, sessions, tenant, err := wc.getUserGroupsAndSessions(ctx, username, clusterName)
+	// Extract issuer from SAR for multi-IDP session filtering
+	var issuer string
+	if sar.Spec.Extra != nil {
+		issuerValues := sar.Spec.Extra["identity.t-caas.telekom.com/issuer"]
+		if len(issuerValues) > 0 {
+			issuer = issuerValues[0]
+			reqLog.Debugw("Extracted issuer from SAR for session matching", "issuer", issuer)
+		}
+	}
+
+	groups, sessions, idpMismatches, tenant, err := wc.getUserGroupsAndSessionsWithIDPInfo(ctx, username, clusterName, issuer)
 	if err != nil {
 		reqLog.With("error", err.Error()).Error("Failed to retrieve user groups for cluster")
 		c.Status(http.StatusInternalServerError)
 		return
 	}
-	reqLog.With("groups", groups, "sessions", len(sessions), "tenant", tenant).Debug("Retrieved user groups for cluster")
+	reqLog.With("groups", groups, "sessions", len(sessions), "tenant", tenant, "idpMismatches", len(idpMismatches)).Debug("Retrieved user groups for cluster")
 
 	// DENY POLICY EVALUATION (phase 1 - cluster/tenant global)
 	if sar.Spec.ResourceAttributes != nil {
@@ -247,6 +382,10 @@ func (wc *WebhookController) handleAuthorize(c *gin.Context) {
 			} else {
 				reason = fmt.Sprintf("Denied by policy %s; No breakglass flow available for your user", pol)
 			}
+			// Add IDP hint if available
+			if hint := wc.getIDPHintFromIssuer(ctx, &sar, reqLog); hint != "" {
+				reason = fmt.Sprintf("%s %s", reason, hint)
+			}
 			reason = wc.finalizeReason(reason, false, clusterName)
 			c.JSON(http.StatusOK, &SubjectAccessReviewResponse{ApiVersion: sar.APIVersion, Kind: sar.Kind, Status: SubjectAccessReviewResponseStatus{Allowed: false, Reason: reason}})
 			return
@@ -278,6 +417,10 @@ func (wc *WebhookController) handleAuthorize(c *gin.Context) {
 					reason = fmt.Sprintf("Denied by policy %s; %d breakglass escalation(s) available", pol, count)
 				} else {
 					reason = fmt.Sprintf("Denied by policy %s; No breakglass flow available for your user", pol)
+				}
+				// Add IDP hint if available
+				if hint := wc.getIDPHintFromIssuer(ctx, &sar, reqLog); hint != "" {
+					reason = fmt.Sprintf("%s %s", reason, hint)
 				}
 				reason = wc.finalizeReason(reason, false, clusterName)
 				c.JSON(http.StatusOK, &SubjectAccessReviewResponse{ApiVersion: sar.APIVersion, Kind: sar.Kind, Status: SubjectAccessReviewResponseStatus{Allowed: false, Reason: reason}})
@@ -359,7 +502,8 @@ func (wc *WebhookController) handleAuthorize(c *gin.Context) {
 		}
 
 		// Get user groups from active sessions
-		activeUserGroups, _, _, err := wc.getUserGroupsAndSessions(ctx, username, clusterName)
+		// Pass empty issuer string since we're just counting available escalations, not filtering by IDP
+		activeUserGroups, _, _, err := wc.getUserGroupsAndSessions(ctx, username, clusterName, "")
 		if err != nil {
 			reqLog.With("error", err.Error()).Error("Failed to retrieve user groups for cluster")
 			c.Status(http.StatusInternalServerError)
@@ -400,6 +544,20 @@ func (wc *WebhookController) handleAuthorize(c *gin.Context) {
 		escals = append(escals, groupescals...)
 		reqLog.With("totalEscalations", len(escals)).Debug("Total available escalation paths")
 
+		// Filter escalations based on requestor's IDP (multi-IDP awareness)
+		// If an escalation has AllowedIdentityProvidersForRequests, the requestor's IDP must be in that list
+		var idpFilteredEscals []v1alpha1.BreakglassEscalation
+		for _, esc := range escals {
+			if wc.isRequestFromAllowedIDP(ctx, issuer, &esc, reqLog) {
+				idpFilteredEscals = append(idpFilteredEscals, esc)
+			}
+		}
+
+		if len(idpFilteredEscals) < len(escals) {
+			reqLog.Debugw("Escalations filtered by requestor IDP", "beforeFilter", len(escals), "afterFilter", len(idpFilteredEscals), "issuer", issuer)
+		}
+		escals = idpFilteredEscals
+
 		if len(escals) > 0 {
 			reqLog.Debugw("Escalation paths available", "count", len(escals))
 			reason = fmt.Sprintf(denyReasonMessage,
@@ -436,10 +594,49 @@ func (wc *WebhookController) handleAuthorize(c *gin.Context) {
 			if reason == "" {
 				reason = diag
 			} else {
-				reason = reason + "" + diag
+				reason = reason + " " + diag
 			}
 			// Also log this at info so admins see the mismatch between session state and SAR capabilities
 			reqLog.With("sessions", sessInfo, "error", sessionSARSkippedErr.Error()).Info("Active sessions present but unable to validate them against target cluster")
+		}
+	}
+
+	// If we denied the request and there are sessions with IDP issuer mismatches,
+	// provide a helpful error message indicating the user has sessions but from a different IDP
+	if !allowed && len(idpMismatches) > 0 && issuer != "" {
+		// Collect the IDPs from the mismatched sessions (show which IDP should have been used)
+		idpSet := make(map[string]bool)
+		for _, s := range idpMismatches {
+			if s.Spec.IdentityProviderName != "" {
+				idpSet[s.Spec.IdentityProviderName] = true
+			}
+		}
+		var idpNames []string
+		for idp := range idpSet {
+			idpNames = append(idpNames, idp)
+		}
+
+		if len(idpNames) > 0 {
+			idpList := strings.Join(idpNames, ", ")
+			diag := fmt.Sprintf(" Note: %d breakglass session(s) found but from different identity provider(s): %s. Your current token is from a different identity provider. For access with your current identity provider, open a new breakglass request.", len(idpMismatches), idpList)
+			if reason == "" {
+				reason = diag
+			} else {
+				reason = reason + " " + diag
+			}
+			// Log this at info level so admins can see IDP mismatches
+			reqLog.With("currentIssuer", issuer, "sessionsWithMismatch", len(idpMismatches), "sessionIDPs", idpNames).Info("User has valid sessions but from different identity provider")
+		}
+	}
+
+	// Add IDP hint to denial reasons (helps users understand which provider authenticated them)
+	if !allowed {
+		if hint := wc.getIDPHintFromIssuer(ctx, &sar, reqLog); hint != "" {
+			if reason == "" {
+				reason = hint
+			} else {
+				reason = fmt.Sprintf("%s %s", reason, hint)
+			}
 		}
 	}
 
@@ -528,10 +725,19 @@ func NewWebhookController(log *zap.SugaredLogger,
 }
 
 // getUserGroupsAndSessions returns groups from active sessions, list of sessions, and a tenant (best-effort from cluster config).
-func (wc *WebhookController) getUserGroupsAndSessions(ctx context.Context, username, clustername string) ([]string, []v1alpha1.BreakglassSession, string, error) {
-	sessions, err := wc.getSessions(ctx, username, clustername)
+// It filters sessions by IDP issuer if present, ensuring multi-IDP scenarios only use sessions created with matching identity providers.
+func (wc *WebhookController) getUserGroupsAndSessions(ctx context.Context, username, clustername, issuer string) ([]string, []v1alpha1.BreakglassSession, string, error) {
+	groups, sessions, _, tenant, err := wc.getUserGroupsAndSessionsWithIDPInfo(ctx, username, clustername, issuer)
+	return groups, sessions, tenant, err
+}
+
+// getUserGroupsAndSessionsWithIDPInfo returns groups from active sessions, list of sessions, IDP mismatch info, and a tenant.
+// It filters sessions by IDP issuer if present, ensuring multi-IDP scenarios only use sessions created with matching identity providers.
+// Returns: (groups, sessions, idpMismatchedSessions, tenant, error)
+func (wc *WebhookController) getUserGroupsAndSessionsWithIDPInfo(ctx context.Context, username, clustername, issuer string) ([]string, []v1alpha1.BreakglassSession, []v1alpha1.BreakglassSession, string, error) {
+	sessions, idpMismatches, err := wc.getSessionsWithIDPMismatchInfo(ctx, username, clustername, issuer)
 	if err != nil {
-		return nil, nil, "", err
+		return nil, nil, nil, "", err
 	}
 	groups := make([]string, 0, len(sessions))
 	for _, s := range sessions {
@@ -544,27 +750,38 @@ func (wc *WebhookController) getUserGroupsAndSessions(ctx context.Context, usern
 			tenant = cfg.Spec.Tenant
 		}
 	}
-	return groups, sessions, tenant, nil
+	return groups, sessions, idpMismatches, tenant, nil
 }
 
-// getSessions filtered (reuse existing approval logic)
-func (wc *WebhookController) getSessions(ctx context.Context, username, clustername string) ([]v1alpha1.BreakglassSession, error) {
+// getSessionsWithIDPMismatchInfo filtered (reuse existing approval logic)
+// If issuer is provided, only returns sessions that match the issuer (multi-IDP mode)
+// If issuer is empty, returns all sessions (single-IDP or backward compatibility mode)
+// Also returns a list of sessions that were filtered out due to IDP issuer mismatch
+func (wc *WebhookController) getSessionsWithIDPMismatchInfo(ctx context.Context, username, clustername, issuer string) ([]v1alpha1.BreakglassSession, []v1alpha1.BreakglassSession, error) {
 	selector := fields.SelectorFromSet(fields.Set{"spec.cluster": clustername, "spec.user": username})
 	all, err := wc.sesManager.GetBreakglassSessionsWithSelector(ctx, selector)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	out := make([]v1alpha1.BreakglassSession, 0, len(all))
+	idpMismatches := make([]v1alpha1.BreakglassSession, 0)
 	now := time.Now()
 	for _, s := range all {
 		if breakglass.IsSessionRetained(s) {
 			continue
 		}
 		if s.Status.RejectedAt.IsZero() && !s.Status.ExpiresAt.IsZero() && s.Status.ExpiresAt.After(now) {
+			// If issuer is provided and session does NOT allow IDP mismatch,
+			// only include sessions that match the issuer (multi-IDP mode)
+			if issuer != "" && !s.Spec.AllowIDPMismatch && s.Spec.IdentityProviderIssuer != issuer {
+				// Track sessions filtered out due to IDP mismatch
+				idpMismatches = append(idpMismatches, s)
+				continue
+			}
 			out = append(out, s)
 		}
 	}
-	return out, nil
+	return out, idpMismatches, nil
 }
 
 // dedupeStrings removes duplicates from a slice of strings while preserving order.
@@ -721,6 +938,10 @@ func (wc *WebhookController) authorizeViaSessions(ctx context.Context, rc *rest.
 			}
 			if resp != nil && resp.Status.Allowed {
 				metrics.WebhookSessionSARsAllowed.WithLabelValues(clusterName, s.Name, g).Inc()
+				// Track IDP-based authorization if session has IDP specified
+				if s.Spec.IdentityProviderName != "" {
+					metrics.EscalationIDPAuthorizationChecks.WithLabelValues(s.Spec.GrantedGroup, s.Spec.IdentityProviderName, "allowed").Inc()
+				}
 				return true, s.Spec.GrantedGroup, s.Name, g
 			}
 			metrics.WebhookSessionSARsDenied.WithLabelValues(clusterName, s.Name, g).Inc()

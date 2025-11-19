@@ -38,11 +38,15 @@ type (
 )
 
 const (
-	SessionConditionTypeIdle               BreakglassSessionConditionType   = "Idle"
-	SessionConditionTypeApproved           BreakglassSessionConditionType   = "Approved"
-	SessionConditionTypeRejected           BreakglassSessionConditionType   = "Rejected"
-	SessionConditionTypeExpired            BreakglassSessionConditionType   = "Expired"
-	SessionConditionTypeCanceled           BreakglassSessionConditionType   = "Canceled"
+	SessionConditionTypeIdle     BreakglassSessionConditionType = "Idle"
+	SessionConditionTypeApproved BreakglassSessionConditionType = "Approved"
+	SessionConditionTypeRejected BreakglassSessionConditionType = "Rejected"
+	SessionConditionTypeExpired  BreakglassSessionConditionType = "Expired"
+	SessionConditionTypeCanceled BreakglassSessionConditionType = "Canceled"
+	// Active indicates the session is currently active and usable for access
+	SessionConditionTypeActive BreakglassSessionConditionType = "Active"
+	// SessionExpired tracks when a session's validity window has ended
+	SessionConditionTypeSessionExpired     BreakglassSessionConditionType   = "SessionExpired"
 	SessionConditionReasonEditedByApprover BreakglassSessionConditionReason = "EditedByApprover"
 
 	SessionStatePending                 BreakglassSessionState = "Pending"
@@ -99,6 +103,28 @@ type BreakglassSessionSpec struct {
 	// Sessions in WaitingForScheduledTime state are not considered valid/active until this time is reached.
 	// +optional
 	ScheduledStartTime *metav1.Time `json:"scheduledStartTime,omitempty"`
+
+	// identityProviderName is the name of the IdentityProvider CR that authenticated the user.
+	// Set during session creation based on the JWT issuer claim.
+	// Used for auditing which IDP authenticated the user and for webhook authorization validation.
+	// +optional
+	IdentityProviderName string `json:"identityProviderName,omitempty"`
+
+	// identityProviderIssuer is the OIDC issuer URL (from JWT 'iss' claim) of the IDP that authenticated the user.
+	// Set during session creation for validation and audit purposes.
+	// Must match the IdentityProvider.spec.issuer of the provider that authenticated the user.
+	// Used by webhook handler to validate the user's token is from the same IDP the session was created with.
+	// +optional
+	IdentityProviderIssuer string `json:"identityProviderIssuer,omitempty"`
+
+	// allowIDPMismatch indicates that this session should accept authorization requests from any IDP.
+	// Set to true when both the cluster and escalation do NOT specify IDP requirements.
+	// When false (default), the webhook will enforce that the requesting user's IDP matches
+	// the IDP that created the session (via identityProviderIssuer matching).
+	// This allows gradual migration to multi-IDP mode: sessions created before IDP tracking
+	// can continue to work with any IDP until explicitly migrated.
+	// +optional
+	AllowIDPMismatch bool `json:"allowIDPMismatch,omitempty"`
 }
 
 // BreakglassSessionStatus defines the observed state of BreakglassSessionStatus.
@@ -106,7 +132,9 @@ type BreakglassSessionStatus struct {
 	// Important: Run "make" to regenerate code after modifying this file
 
 	// conditions is an array of current observed BreakglassSession conditions.
-	// todo: implement 'Active' and 'Expired' conditions.
+	// Tracks conditions like Idle, Approved, Rejected, Expired, Canceled, Active, and SessionExpired
+	// Active condition: Set to True when session is approved and within validity window, False otherwise
+	// SessionExpired condition: Set to True when session validity period has ended, False while active
 	Conditions []metav1.Condition `json:"conditions"`
 
 	// approvedAt is the time when the session was approved.
@@ -235,6 +263,12 @@ func (bs *BreakglassSession) ValidateCreate(ctx context.Context, obj runtime.Obj
 			allErrs = append(allErrs, field.Invalid(field.NewPath("spec").Child("scheduledStartTime"), session.Spec.ScheduledStartTime.Time, "scheduledStartTime must be at least 5 minutes in the future"))
 		}
 	}
+
+	// Multi-IDP: Validate IDP tracking fields if set
+	allErrs = append(allErrs, validateIdentityProviderFields(ctx, session.Spec.IdentityProviderName, session.Spec.IdentityProviderIssuer, field.NewPath("spec").Child("identityProviderName"), field.NewPath("spec").Child("identityProviderIssuer"))...)
+
+	// Session Authorization - Validate IDP is allowed by matching escalation
+	allErrs = append(allErrs, validateSessionIdentityProviderAuthorization(ctx, session.Spec.Cluster, session.Spec.GrantedGroup, session.Spec.IdentityProviderName, field.NewPath("spec").Child("identityProviderName"))...)
 
 	nameErrs := ensureClusterWideUniqueName(ctx, &BreakglassSessionList{}, bs.Namespace, bs.Name, field.NewPath("metadata").Child("name"))
 	allErrs = append(allErrs, nameErrs...)

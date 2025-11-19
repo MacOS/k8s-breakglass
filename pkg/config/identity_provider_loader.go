@@ -4,27 +4,43 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"go.uber.org/zap"
 	corev1 "k8s.io/api/core/v1"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	breakglassv1alpha1 "github.com/telekom/k8s-breakglass/api/v1alpha1"
 )
 
+// ConversionErrorMetricsRecorder is a callback to record conversion failure metrics
+// idpName: name of the IdentityProvider that failed conversion
+// failureReason: categorized reason (missing_field, invalid_config, parse_error, etc.)
+type ConversionErrorMetricsRecorder func(idpName, failureReason string)
+
 // IdentityProviderLoader handles loading identity provider configuration from Kubernetes CRs
 type IdentityProviderLoader struct {
-	kubeClient client.Client
-	logger     *zap.SugaredLogger
+	kubeClient      client.Client
+	logger          *zap.SugaredLogger
+	metricsRecorder ConversionErrorMetricsRecorder
 }
 
 // NewIdentityProviderLoader creates a new IdentityProviderLoader
 func NewIdentityProviderLoader(kubeClient client.Client) *IdentityProviderLoader {
 	return &IdentityProviderLoader{
-		kubeClient: kubeClient,
-		logger:     zap.NewNop().Sugar(), // No-op logger by default
+		kubeClient:      kubeClient,
+		logger:          zap.NewNop().Sugar(),                   // No-op logger by default
+		metricsRecorder: func(idpName, failureReason string) {}, // No-op recorder by default
 	}
+}
+
+// WithMetricsRecorder sets the metrics recorder callback
+func (l *IdentityProviderLoader) WithMetricsRecorder(recorder ConversionErrorMetricsRecorder) *IdentityProviderLoader {
+	l.metricsRecorder = recorder
+	return l
 }
 
 // WithLogger sets the logger for debug output
@@ -137,6 +153,8 @@ func (l *IdentityProviderLoader) convertToRuntimeConfig(ctx context.Context, idp
 	l.logger.Debugw("Converting IdentityProvider to runtime config", "name", idp.Name)
 
 	runtimeConfig := &IdentityProviderConfig{
+		Name:      idp.Name,
+		Issuer:    idp.Spec.Issuer,
 		Type:      "OIDC",
 		Authority: idp.Spec.OIDC.Authority,
 		ClientID:  idp.Spec.OIDC.ClientID,
@@ -144,7 +162,8 @@ func (l *IdentityProviderLoader) convertToRuntimeConfig(ctx context.Context, idp
 
 	l.logger.Debugw("OIDC config loaded",
 		"authority", idp.Spec.OIDC.Authority,
-		"clientID", idp.Spec.OIDC.ClientID)
+		"clientID", idp.Spec.OIDC.ClientID,
+		"issuer", idp.Spec.Issuer)
 
 	// Setup group sync if configured
 	if idp.Spec.GroupSyncProvider == breakglassv1alpha1.GroupSyncProviderKeycloak && idp.Spec.Keycloak != nil {
@@ -224,6 +243,158 @@ func (l *IdentityProviderLoader) getSecretValue(ctx context.Context, secretRef *
 	return string(value), nil
 }
 
+// LoadAllIdentityProviders returns all enabled identity providers as a map of name -> config
+// Only includes providers where Disabled=false
+// Note: If any enabled IDPs fail to convert, they are skipped with logged warnings
+func (l *IdentityProviderLoader) LoadAllIdentityProviders(ctx context.Context) (map[string]*IdentityProviderConfig, error) {
+	l.logger.Debug("Loading all enabled IdentityProviders")
+
+	idpList := &breakglassv1alpha1.IdentityProviderList{}
+	err := l.kubeClient.List(ctx, idpList)
+	if err != nil {
+		l.logger.Errorw("Failed to list IdentityProvider resources", "error", err)
+		return nil, fmt.Errorf("failed to list IdentityProvider resources: %w", err)
+	}
+
+	result := make(map[string]*IdentityProviderConfig)
+	var conversionErrors []string
+	for i := range idpList.Items {
+		idp := &idpList.Items[i]
+		if !idp.Spec.Disabled {
+			config, err := l.convertToRuntimeConfig(ctx, idp)
+			if err != nil {
+				// Log conversion error with full context for troubleshooting
+				l.logger.Warnw("Failed to convert IdentityProvider, skipping",
+					"name", idp.Name,
+					"namespace", idp.Namespace,
+					"displayName", idp.Spec.DisplayName,
+					"error", err)
+				// Update the IdentityProvider CR status to mark conversion failure
+				// This makes the error visible in kubectl describe for operators
+				l.updateConversionFailureStatus(ctx, idp, err)
+				conversionErrors = append(conversionErrors, fmt.Sprintf("%s: %v", idp.Name, err))
+				continue // Skip problematic configs
+			}
+			result[idp.Name] = config
+		}
+	}
+
+	if len(conversionErrors) > 0 {
+		// Log with ERROR level to make skipped IDPs more visible in logs
+		l.logger.Errorw("Some IdentityProviders were skipped due to conversion errors - users may be unable to authenticate with these providers",
+			"count", len(conversionErrors),
+			"skipped_idps", conversionErrors)
+		// TODO: Emit metrics to track IDP conversion failures
+		// Implementation: Add idp_conversion_errors_total counter metric with labels:
+		//   - idp_name: name of failed provider
+		//   - failure_reason: parsing_error|validation_error|network_error, etc.
+		// This enables alerting on repeated failures and tracks trends over time
+		// Reference: See pkg/metrics/metrics.go for metric initialization patterns
+	}
+
+	l.logger.Debugw("Loaded enabled IdentityProviders", "count", len(result))
+	return result, nil
+}
+
+// LoadIdentityProviderByIssuer loads an IdentityProvider by its issuer URL
+// This is used to determine which provider authenticated a user based on JWT iss claim
+// Returns error if no provider with matching issuer is found
+func (l *IdentityProviderLoader) LoadIdentityProviderByIssuer(ctx context.Context, issuer string) (*IdentityProviderConfig, error) {
+	l.logger.Debugw("Loading IdentityProvider by issuer", "issuer", issuer)
+
+	if issuer == "" {
+		return nil, fmt.Errorf("issuer cannot be empty")
+	}
+
+	idpList := &breakglassv1alpha1.IdentityProviderList{}
+	err := l.kubeClient.List(ctx, idpList)
+	if err != nil {
+		l.logger.Errorw("Failed to list IdentityProvider resources", "error", err)
+		return nil, fmt.Errorf("failed to list IdentityProvider resources: %w", err)
+	}
+
+	for i := range idpList.Items {
+		idp := &idpList.Items[i]
+		if !idp.Spec.Disabled && idp.Spec.Issuer == issuer {
+			l.logger.Debugw("Found IdentityProvider by issuer", "name", idp.Name, "issuer", issuer)
+			return l.convertToRuntimeConfig(ctx, idp)
+		}
+	}
+
+	// Fallback: if no exact issuer match, try matching by authority
+	// This handles cases where Spec.Issuer is not set or doesn't match JWT iss claim exactly
+	// Many OIDC providers (including Keycloak) use the realm URL as both authority and issuer
+	l.logger.Debugw("No exact issuer match found, trying authority fallback", "issuer", issuer)
+	for i := range idpList.Items {
+		idp := &idpList.Items[i]
+		// Normalize both URLs for comparison (trim trailing slashes)
+		authority := strings.TrimRight(idp.Spec.OIDC.Authority, "/")
+		issuerNorm := strings.TrimRight(issuer, "/")
+
+		if !idp.Spec.Disabled && authority == issuerNorm {
+			l.logger.Debugw("Found IdentityProvider by authority fallback", "name", idp.Name, "authority", authority, "issuer", issuer)
+			return l.convertToRuntimeConfig(ctx, idp)
+		}
+	}
+
+	l.logger.Warnw("No IdentityProvider found for issuer", "issuer", issuer)
+	return nil, fmt.Errorf("no enabled IdentityProvider found for issuer %s", issuer)
+}
+
+// ValidateIdentityProviderRefs checks that all named IdentityProviders exist and are enabled
+// Used for validating ClusterConfig.IdentityProviderRefs and BreakglassEscalation.AllowedIdentityProviders
+// If refs is empty, this is considered valid (means accept all enabled providers)
+func (l *IdentityProviderLoader) ValidateIdentityProviderRefs(ctx context.Context, refs []string) error {
+	if len(refs) == 0 {
+		l.logger.Debug("Empty IdentityProviderRefs - will accept all enabled providers")
+		return nil
+	}
+
+	l.logger.Debugw("Validating IdentityProviderRefs", "count", len(refs), "refs", refs)
+
+	idpList := &breakglassv1alpha1.IdentityProviderList{}
+	err := l.kubeClient.List(ctx, idpList)
+	if err != nil {
+		l.logger.Errorw("Failed to list IdentityProvider resources", "error", err)
+		return fmt.Errorf("failed to validate IdentityProviderRefs: %w", err)
+	}
+
+	// Build map of available providers
+	enabledProviders := make(map[string]bool)
+	for i := range idpList.Items {
+		idp := &idpList.Items[i]
+		if !idp.Spec.Disabled {
+			enabledProviders[idp.Name] = true
+		}
+	}
+
+	// Check that all refs point to valid, enabled providers
+	var missingRefs []string
+	for _, ref := range refs {
+		if !enabledProviders[ref] {
+			missingRefs = append(missingRefs, ref)
+		}
+	}
+
+	if len(missingRefs) > 0 {
+		l.logger.Errorw("IdentityProviderRefs validation failed - providers not found or disabled", "missing", missingRefs)
+		return fmt.Errorf("invalid IdentityProviderRefs: providers not found or disabled: %v", missingRefs)
+	}
+
+	l.logger.Debug("IdentityProviderRefs validation passed")
+	return nil
+}
+
+// GetIDPNameByIssuer returns the name of the IdentityProvider that matches the given issuer
+// Used to convert from JWT issuer claim to IDP name for storage in sessions
+func (l *IdentityProviderLoader) GetIDPNameByIssuer(ctx context.Context, issuer string) (string, error) {
+	config, err := l.LoadIdentityProviderByIssuer(ctx, issuer)
+	if err != nil {
+		return "", err
+	}
+	return config.Name, nil
+}
+
 // MarshalIdentityProviderToJSON marshals an IdentityProviderConfig to JSON
 // for API responses
 func MarshalIdentityProviderToJSON(config *IdentityProviderConfig) (string, error) {
@@ -232,4 +403,81 @@ func MarshalIdentityProviderToJSON(config *IdentityProviderConfig) (string, erro
 		return "", fmt.Errorf("failed to marshal IdentityProvider config: %w", err)
 	}
 	return string(data), nil
+}
+
+// updateConversionFailureStatus updates the IdentityProvider CR status to mark a conversion failure
+// This makes the error visible in kubectl describe and enables monitoring of failed configurations
+func (l *IdentityProviderLoader) updateConversionFailureStatus(ctx context.Context, idp *breakglassv1alpha1.IdentityProvider, err error) {
+	if idp == nil || err == nil {
+		return
+	}
+
+	// Categorize the error for metrics
+	failureReason := categorizeConversionError(err)
+
+	// Create a new condition for the conversion failure
+	condition := metav1.Condition{
+		Type:               string(breakglassv1alpha1.IdentityProviderConditionConversionFailed),
+		Status:             metav1.ConditionTrue,
+		ObservedGeneration: idp.Generation,
+		Reason:             "ConversionError",
+		Message:            fmt.Sprintf("Failed to convert IdentityProvider configuration: %v", err),
+		LastTransitionTime: metav1.Now(),
+	}
+
+	// Update the condition on the status
+	apimeta.SetStatusCondition(&idp.Status.Conditions, condition)
+
+	// Try to update the status in Kubernetes
+	if updateErr := l.kubeClient.Status().Update(ctx, idp); updateErr != nil {
+		l.logger.Warnw("Failed to update IdentityProvider status on conversion failure",
+			"name", idp.Name,
+			"conversionError", err,
+			"updateError", updateErr)
+	} else {
+		l.logger.Debugw("Updated IdentityProvider status to mark conversion failure",
+			"name", idp.Name,
+			"error", err)
+	}
+
+	// Emit metric to track conversion failures
+	// This enables alerting and monitoring of repeated conversion failures
+	l.recordConversionFailureMetric(idp.Name, failureReason)
+}
+
+// categorizeConversionError classifies the error type for metrics
+// Returns a metric-friendly label describing the failure category
+func categorizeConversionError(err error) string {
+	if err == nil {
+		return "unknown"
+	}
+
+	errMsg := err.Error()
+
+	// Check for common error patterns and categorize them
+	switch {
+	case strings.Contains(errMsg, "required"):
+		return "missing_field"
+	case strings.Contains(errMsg, "invalid"):
+		return "invalid_config"
+	case strings.Contains(errMsg, "parse"):
+		return "parse_error"
+	case strings.Contains(errMsg, "secret"):
+		return "secret_error"
+	case strings.Contains(errMsg, "connection"):
+		return "connection_error"
+	case strings.Contains(errMsg, "timeout"):
+		return "timeout_error"
+	case strings.Contains(errMsg, "unauthorized"):
+		return "auth_error"
+	default:
+		return "other_error"
+	}
+}
+
+// recordConversionFailureMetric calls the metrics recorder callback
+func (l *IdentityProviderLoader) recordConversionFailureMetric(idpName, failureReason string) {
+	if l.metricsRecorder != nil {
+		l.metricsRecorder(idpName, failureReason)
+	}
 }

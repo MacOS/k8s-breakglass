@@ -3,9 +3,11 @@ package config
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"go.uber.org/zap"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -27,6 +29,12 @@ import (
 // - Backoff strategy: Exponential backoff on errors (controller-runtime built-in)
 // - No thundering herd: Uses work queue to deduplicate rapid changes
 // - Finalization ready: Supports cleanup logic if needed
+//
+// Caching:
+// - Maintains an in-memory cache of enabled IdentityProviders
+// - Cache is updated whenever IdentityProvider CRs change
+// - API calls use the cache to avoid DDoSing the Kubernetes APIServer
+// - Cache is thread-safe using RWMutex
 type IdentityProviderReconciler struct {
 	client   client.Client
 	logger   *zap.SugaredLogger
@@ -38,6 +46,11 @@ type IdentityProviderReconciler struct {
 	onError func(ctx context.Context, err error)
 	// resyncPeriod defines the full list reconciliation interval (default 10m)
 	resyncPeriod time.Duration
+
+	// Cache for enabled IdentityProviders to avoid APIServer queries
+	// Protected by cacheMutex for thread-safe access
+	idpCacheMutex sync.RWMutex
+	idpCache      []*breakglassv1alpha1.IdentityProvider
 }
 
 // NewIdentityProviderReconciler creates a new controller-runtime reconciler for IdentityProvider
@@ -54,7 +67,46 @@ func NewIdentityProviderReconciler(
 		logger:       logger,
 		onReload:     reloadFn,
 		resyncPeriod: 10 * time.Minute, // Full list resync every 10 minutes
+		idpCache:     []*breakglassv1alpha1.IdentityProvider{},
 	}
+}
+
+// GetCachedIdentityProviders returns the cached list of enabled IdentityProviders
+// This is used by the API to avoid querying the Kubernetes APIServer on every request
+// The cache is automatically maintained by the reconciler when IdentityProviders change
+func (r *IdentityProviderReconciler) GetCachedIdentityProviders() []*breakglassv1alpha1.IdentityProvider {
+	r.idpCacheMutex.RLock()
+	defer r.idpCacheMutex.RUnlock()
+	// Return a copy to prevent external modifications
+	result := make([]*breakglassv1alpha1.IdentityProvider, len(r.idpCache))
+	copy(result, r.idpCache)
+	return result
+}
+
+// updateIDPCache updates the cached list of identity providers
+// Called during reconciliation when changes are detected
+func (r *IdentityProviderReconciler) updateIDPCache(ctx context.Context) error {
+	idpList := &breakglassv1alpha1.IdentityProviderList{}
+	if err := r.client.List(ctx, idpList); err != nil {
+		r.logger.Errorw("failed to list identity providers for cache update", "error", err)
+		return err
+	}
+
+	// Filter to only enabled providers
+	var enabledIDPs []*breakglassv1alpha1.IdentityProvider
+	for i := range idpList.Items {
+		if !idpList.Items[i].Spec.Disabled {
+			enabledIDPs = append(enabledIDPs, &idpList.Items[i])
+		}
+	}
+
+	// Update cache atomically
+	r.idpCacheMutex.Lock()
+	r.idpCache = enabledIDPs
+	r.idpCacheMutex.Unlock()
+
+	r.logger.Debugw("updated identity provider cache", "count", len(enabledIDPs))
+	return nil
 }
 
 // WithErrorHandler sets the error callback function
@@ -78,7 +130,7 @@ func (r *IdentityProviderReconciler) WithResyncPeriod(period time.Duration) *Ide
 // Reconcile implements the Reconciler interface
 // It reloads the IdentityProvider configuration when changes are detected
 func (r *IdentityProviderReconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
-	r.logger.Debugw("Reconciling IdentityProvider", "name", req.Name, "namespace", req.Namespace)
+	r.logger.Debugw("reconciling identity provider", "name", req.Name, "namespace", req.Namespace)
 
 	// Load the IdentityProvider to verify it still exists
 	idp := &breakglassv1alpha1.IdentityProvider{}
@@ -86,10 +138,10 @@ func (r *IdentityProviderReconciler) Reconcile(ctx context.Context, req reconcil
 		// Object not found - this is fine, we can ignore it
 		// (controller-runtime handles deletion automatically)
 		if client.IgnoreNotFound(err) == nil {
-			r.logger.Infow("IdentityProvider deleted", "name", req.Name)
+			r.logger.Infow("identity provider deleted", "name", req.Name)
 			return reconcile.Result{}, nil
 		}
-		r.logger.Errorw("Failed to fetch IdentityProvider", "error", err, "name", req.Name)
+		r.logger.Errorw("failed to fetch identity provider", "error", err, "name", req.Name)
 		if r.onError != nil {
 			r.onError(ctx, err)
 		}
@@ -99,21 +151,59 @@ func (r *IdentityProviderReconciler) Reconcile(ctx context.Context, req reconcil
 
 	// Reload configuration when IdentityProvider changes
 	if err := r.onReload(ctx); err != nil {
-		r.logger.Errorw("Failed to reload IdentityProvider", "error", err, "name", req.Name)
+		r.logger.Errorw("failed to reload identity provider", "error", err, "name", req.Name)
 		if r.onError != nil {
 			r.onError(ctx, err)
 		}
-		// Emit event on the IdentityProvider CR
-		if r.recorder != nil {
-			r.recorder.Event(idp, "Warning", "ReloadFailed", fmt.Sprintf("Failed to reload configuration: %v", err))
+
+		// Update status to reflect error state
+		idp.Status.Phase = "Error"
+		idp.Status.Message = fmt.Sprintf("Failed to reload configuration: %v", err)
+		idp.Status.Connected = false
+		if err := r.client.Status().Update(ctx, idp); err != nil {
+			r.logger.Errorw("failed to update identity provider status after reload failure", "error", err, "name", req.Name)
 		}
+
+		// Update cache anyway - even if reload failed, we should still have the latest list
+		if cacheErr := r.updateIDPCache(ctx); cacheErr != nil {
+			r.logger.Warnw("failed to update IDP cache after reload failure", "error", cacheErr, "name", req.Name)
+		}
+
+		// Emit event on the IdentityProvider CR
+		// Note: Empty namespace for cluster-scoped resources to prevent event reconciliation issues
+		if r.recorder != nil {
+			eventIdp := idp.DeepCopy()
+			eventIdp.SetNamespace("") // Ensure no namespace is set for cluster-scoped events
+			r.recorder.Event(eventIdp, "Warning", "ReloadFailed", fmt.Sprintf("Failed to reload configuration: %v", err))
+		}
+
 		// Requeue with exponential backoff
 		return reconcile.Result{RequeueAfter: 30 * time.Second}, err
 	}
 
-	r.logger.Infow("IdentityProvider reloaded successfully", "name", req.Name)
+	r.logger.Infow("identity provider configuration reloaded successfully", "name", req.Name)
+
+	// Update cache with latest IDPs (for API to use)
+	if err := r.updateIDPCache(ctx); err != nil {
+		r.logger.Warnw("failed to update IDP cache after successful reload", "error", err, "name", req.Name)
+		// Continue anyway - cache update failure shouldn't block the reconciliation
+	}
+
+	// Update status to reflect success
+	idp.Status.Phase = "Ready"
+	idp.Status.Message = "Configuration reloaded successfully"
+	idp.Status.Connected = true
+	idp.Status.LastValidation = metav1.NewTime(time.Now())
+	if err := r.client.Status().Update(ctx, idp); err != nil {
+		r.logger.Errorw("failed to update IdentityProvider status", "error", err, "name", req.Name)
+	}
+
+	// Emit event on the IdentityProvider CR
+	// Note: Empty namespace for cluster-scoped resources to prevent event reconciliation issues
 	if r.recorder != nil {
-		r.recorder.Event(idp, "Normal", "ReloadSuccess", "Configuration reloaded successfully")
+		eventIdp := idp.DeepCopy()
+		eventIdp.SetNamespace("") // Ensure no namespace is set for cluster-scoped events
+		r.recorder.Event(eventIdp, "Normal", "ReloadSuccess", "Configuration reloaded successfully")
 	}
 
 	// Requeue periodically for safety (even if no changes detected)
@@ -124,7 +214,7 @@ func (r *IdentityProviderReconciler) Reconcile(ctx context.Context, req reconcil
 // SetupWithManager sets up the controller with the manager (required for controller-runtime)
 // This is called during manager initialization and registers the reconciler
 func (r *IdentityProviderReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	r.logger.Infow("Setting up IdentityProvider reconciler",
+	r.logger.Infow("setting up IdentityProvider reconciler",
 		"resyncPeriod", r.resyncPeriod,
 		"kind", "IdentityProvider")
 

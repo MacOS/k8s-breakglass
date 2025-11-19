@@ -380,31 +380,53 @@ func (wc BreakglassSessionController) handleRequestBreakglassSession(c *gin.Cont
 			reqLog.Debugw("Resolving approver group members",
 				"group", group,
 				"escalation", p.Name)
-			if wc.escalationManager != nil && wc.escalationManager.Resolver != nil {
-				members, err := wc.escalationManager.Resolver.Members(ctx, group)
-				if err != nil {
-					reqLog.Warnw("Failed to resolve approver group members", "group", group, "error", err)
-					// Continue with other groups even if one fails
+
+			var members []string
+			var err error
+
+			// Multi-IDP mode: use deduplicated members from status if available
+			if len(p.Spec.AllowedIdentityProvidersForApprovers) > 0 && p.Status.ApproverGroupMembers != nil {
+				if statusMembers, ok := p.Status.ApproverGroupMembers[group]; ok {
+					members = statusMembers
+					reqLog.Debugw("Using deduplicated members from status (multi-IDP mode)",
+						"group", group,
+						"escalation", p.Name,
+						"memberCount", len(members))
+				} else {
+					reqLog.Debugw("No members found in status for group (multi-IDP mode)",
+						"group", group,
+						"escalation", p.Name)
 					continue
 				}
-				reqLog.Debugw("Resolved approver group members",
-					"group", group,
-					"escalation", p.Name,
-					"memberCount", len(members),
-					"members", members)
-				countBefore := len(allApprovers)
-				for _, member := range members {
-					allApprovers = addIfNotPresent(allApprovers, member)
-					// Track member as belonging to this group
-					approversByGroup[group] = addIfNotPresent(approversByGroup[group], member)
+			} else {
+				// Legacy mode: resolve from single IDP
+				if wc.escalationManager != nil && wc.escalationManager.Resolver != nil {
+					members, err = wc.escalationManager.Resolver.Members(ctx, group)
+					if err != nil {
+						reqLog.Warnw("Failed to resolve approver group members", "group", group, "error", err)
+						// Continue with other groups even if one fails
+						continue
+					}
+					reqLog.Debugw("Resolved approver group members from legacy resolver",
+						"group", group,
+						"escalation", p.Name,
+						"memberCount", len(members),
+						"members", members)
 				}
-				countAdded := len(allApprovers) - countBefore
-				reqLog.Debugw("Added group members to approvers",
-					"group", group,
-					"escalation", p.Name,
-					"newMembersAdded", countAdded,
-					"totalApproversNow", len(allApprovers))
 			}
+
+			countBefore := len(allApprovers)
+			for _, member := range members {
+				allApprovers = addIfNotPresent(allApprovers, member)
+				// Track member as belonging to this group
+				approversByGroup[group] = addIfNotPresent(approversByGroup[group], member)
+			}
+			countAdded := len(allApprovers) - countBefore
+			reqLog.Debugw("Added group members to approvers",
+				"group", group,
+				"escalation", p.Name,
+				"newMembersAdded", countAdded,
+				"totalApproversNow", len(allApprovers))
 		}
 
 		// Check if this is the matched escalation
@@ -490,11 +512,53 @@ func (wc BreakglassSessionController) handleRequestBreakglassSession(c *gin.Cont
 		DenyPolicyRefs: selectedDenyPolicies,
 		RequestReason:  request.Reason,
 	}
+
+	// Multi-IDP: Populate IDP tracking fields from authentication middleware
+	if idpName, exists := c.Get("identity_provider_name"); exists {
+		if name, ok := idpName.(string); ok && name != "" {
+			spec.IdentityProviderName = name
+		}
+	}
+	if issuer, exists := c.Get("issuer"); exists {
+		if iss, ok := issuer.(string); ok && iss != "" {
+			spec.IdentityProviderIssuer = iss
+		}
+	}
+
 	if matchedEsc != nil {
 		// copy relevant duration-related fields from escalation spec to session spec
 		spec.MaxValidFor = matchedEsc.Spec.MaxValidFor
 		spec.RetainFor = matchedEsc.Spec.RetainFor
 		spec.IdleTimeout = matchedEsc.Spec.IdleTimeout
+
+		// Determine AllowIDPMismatch flag: set to true when neither escalation nor cluster have IDP restrictions
+		// This ensures backward compatibility for single-IDP deployments
+		escalationHasIDPRestriction := len(matchedEsc.Spec.AllowedIdentityProviders) > 0
+		clusterHasIDPRestriction := false
+
+		// Try to fetch cluster config to check for IDP restrictions
+		if wc.clusterConfigManager != nil {
+			if clusterConfig, err := wc.clusterConfigManager.GetClusterConfigByName(ctx, request.Clustername); err == nil {
+				clusterHasIDPRestriction = len(clusterConfig.Spec.IdentityProviderRefs) > 0
+				reqLog.Debugw("Fetched cluster config for IDP restriction check",
+					"cluster", request.Clustername,
+					"clusterHasIDPRestriction", clusterHasIDPRestriction,
+					"escalationHasIDPRestriction", escalationHasIDPRestriction)
+			} else {
+				reqLog.Debugw("Could not fetch cluster config for IDP check (will default to false for restriction)",
+					"cluster", request.Clustername,
+					"error", err)
+			}
+		}
+
+		// AllowIDPMismatch=true means: ignore IDP checks during authorization
+		// This is set when BOTH escalation and cluster have no IDP restrictions
+		// This enables backward compatibility for deployments not using multi-IDP
+		spec.AllowIDPMismatch = !escalationHasIDPRestriction && !clusterHasIDPRestriction
+		reqLog.Debugw("Set AllowIDPMismatch flag for session",
+			"allowIDPMismatch", spec.AllowIDPMismatch,
+			"escalationHasIDPRestriction", escalationHasIDPRestriction,
+			"clusterHasIDPRestriction", clusterHasIDPRestriction)
 
 		// Validate and apply custom duration if provided
 		if request.Duration > 0 {
@@ -621,7 +685,18 @@ func (wc BreakglassSessionController) handleRequestBreakglassSession(c *gin.Cont
 	// Do not try to fetch it again as this can race with informer cache population.
 	// Instead, reuse the bs object that was created.
 
-	approvalTimeout := time.Hour // TODO: make configurable per escalation/cluster
+	// Get approval timeout from escalation spec, or use cluster default
+	approvalTimeout := time.Hour // Default: 1 hour
+	if matchedEsc != nil {
+		if matchedEsc.Spec.ApprovalTimeout != "" {
+			if d, err := time.ParseDuration(matchedEsc.Spec.ApprovalTimeout); err == nil && d > 0 {
+				approvalTimeout = d
+				reqLog.Debugw("Using approval timeout from escalation spec", "approvalTimeout", approvalTimeout)
+			} else {
+				reqLog.Warnw("Invalid ApprovalTimeout in escalation spec; falling back to default", "value", matchedEsc.Spec.ApprovalTimeout, "error", err)
+			}
+		}
+	}
 
 	// Compute retained-until at creation so sessions always expose when they will be cleaned up.
 	var retainFor time.Duration = DefaultRetainForDuration
@@ -969,9 +1044,18 @@ func (wc BreakglassSessionController) setSessionStatus(c *gin.Context, sesCondit
 	switch sesCondition {
 	case v1alpha1.SessionConditionTypeApproved:
 		metrics.SessionApproved.WithLabelValues(bs.Spec.Cluster).Inc()
+		// Track if session was approved with specific IDP
+		if bs.Spec.IdentityProviderName != "" {
+			metrics.SessionApprovedWithIDP.WithLabelValues(bs.Spec.IdentityProviderName).Inc()
+		}
 		// Also track if it was a scheduled session that got approved
 		if bs.Spec.ScheduledStartTime != nil && !bs.Spec.ScheduledStartTime.IsZero() {
 			metrics.SessionScheduled.WithLabelValues(bs.Spec.Cluster).Inc()
+		}
+
+		// Send approval notification email to requester
+		if !wc.disableEmail && wc.mailQueue != nil && bs.Spec.User != "" {
+			wc.sendSessionApprovalEmail(reqLog, bs)
 		}
 	case v1alpha1.SessionConditionTypeRejected:
 		metrics.SessionRejected.WithLabelValues(bs.Spec.Cluster).Inc()
@@ -2117,15 +2201,48 @@ func (wc BreakglassSessionController) isSessionApprover(c *gin.Context, session 
 			reqLog.Debugw("User is session approver (direct user)", "session", session.Name, "escalation", esc.Name, "user", email)
 			return true
 		}
-		// Group approver intersection
-		for _, g := range approverGroups {
-			if slices.Contains(esc.Spec.Approvers.Groups, g) {
-				reqLog.Debugw("User is session approver (group)", "session", session.Name, "escalation", esc.Name, "group", g)
-				return true
+
+		// Multi-IDP aware group checking: use deduplicated members from status if available
+		approverGroupsToCheck := esc.Spec.Approvers.Groups
+		var dedupMembers []string
+
+		// If multi-IDP fields are set, use pre-computed deduplicated members from status
+		if len(esc.Spec.AllowedIdentityProvidersForApprovers) > 0 && esc.Status.ApproverGroupMembers != nil {
+			// Multi-IDP mode: check against deduplicated members directly
+			for _, g := range approverGroupsToCheck {
+				if members, ok := esc.Status.ApproverGroupMembers[g]; ok {
+					dedupMembers = append(dedupMembers, members...)
+					reqLog.Debugw("Using deduplicated members from multi-IDP status",
+						"escalation", esc.Name, "group", g, "memberCount", len(members))
+				}
+			}
+
+			// Check if approver's email is in the deduplicated member list
+			for _, member := range dedupMembers {
+				if strings.EqualFold(member, email) {
+					reqLog.Debugw("User is session approver (multi-IDP deduplicated group member)",
+						"session", session.Name, "escalation", esc.Name, "member", email)
+					return true
+				}
+			}
+		} else {
+			// Legacy mode: check against user's groups
+			for _, g := range approverGroupsToCheck {
+				if slices.Contains(approverGroups, g) {
+					reqLog.Debugw("User is session approver (legacy group)", "session", session.Name, "escalation", esc.Name, "group", g)
+					return true
+				}
 			}
 		}
+
 		// This escalation did not grant approver rights to the caller; continue checking other escalations
-		reqLog.Debugw("Escalation found but user not in approvers (continuing)", "session", session.Name, "escalation", esc.Name, "user", email, "userGroups", approverGroups, "approverUsers", esc.Spec.Approvers.Users, "approverGroups", esc.Spec.Approvers.Groups)
+		if len(esc.Spec.AllowedIdentityProvidersForApprovers) > 0 {
+			reqLog.Debugw("Escalation found but user not in deduplicated approvers (continuing)",
+				"session", session.Name, "escalation", esc.Name, "user", email, "dedupMemberCount", len(dedupMembers))
+		} else {
+			reqLog.Debugw("Escalation found but user not in approvers (continuing)",
+				"session", session.Name, "escalation", esc.Name, "user", email, "userGroups", approverGroups, "approverUsers", esc.Spec.Approvers.Users, "approverGroups", esc.Spec.Approvers.Groups)
+		}
 		continue
 	}
 	// No matching escalation granting approver rights found. Log details for debugging.
@@ -2279,6 +2396,80 @@ func NewBreakglassSessionController(log *zap.SugaredLogger,
 	}
 
 	return ctrl
+}
+
+// sendSessionApprovalEmail sends an approval notification to the requester
+func (wc BreakglassSessionController) sendSessionApprovalEmail(log *zap.SugaredLogger, session v1alpha1.BreakglassSession) {
+	if wc.mailQueue == nil {
+		log.Warnw("mail queue is nil, cannot send approval email", "session", session.Name)
+		return
+	}
+
+	brandingName := "Breakglass"
+	if wc.config.Frontend.BrandingName != "" {
+		brandingName = wc.config.Frontend.BrandingName
+	}
+
+	// Determine if this is a scheduled session
+	isScheduled := session.Spec.ScheduledStartTime != nil && !session.Spec.ScheduledStartTime.IsZero()
+
+	// Determine activation time (either now or scheduled time)
+	activationTime := time.Now().Format("2006-01-02 15:04:05")
+	if isScheduled {
+		activationTime = session.Spec.ScheduledStartTime.Format("2006-01-02 15:04:05")
+	}
+
+	// Prepare email parameters with comprehensive approval info
+	params := mail.ApprovedMailParams{
+		SubjectFullName: session.Spec.User,
+		SubjectEmail:    session.Spec.User,
+		RequestedRole:   session.Spec.GrantedGroup,
+		ApproverFullName: func() string {
+			// Try to extract approver name from email or use as-is
+			if session.Status.Approver != "" {
+				return session.Status.Approver
+			}
+			return "Approver"
+		}(),
+		ApproverEmail: session.Status.Approver,
+		BrandingName:  brandingName,
+
+		// Tracking and scheduling information
+		ApprovedAt:     time.Now().Format("2006-01-02 15:04:05"),
+		ActivationTime: activationTime,
+		ExpirationTime: session.Status.ExpiresAt.Format("2006-01-02 15:04:05"),
+		IsScheduled:    isScheduled,
+		SessionID:      session.Name,
+		Cluster:        session.Spec.Cluster,
+		Username:       session.Spec.User,
+		ApprovalReason: "", // Could be populated from session.Status.ApprovalReason if available
+
+		// IDP information for multi-IDP setups
+		IDPName:   session.Spec.IdentityProviderName,
+		IDPIssuer: session.Spec.IdentityProviderIssuer,
+	}
+
+	// Render the approval email body using the enhanced template
+	body, err := mail.RenderApproved(params)
+	if err != nil {
+		log.Errorw("failed to render approval email template", "error", err, "session", session.Name)
+		return
+	}
+
+	// Enqueue the email for sending
+	subject := fmt.Sprintf("Breakglass Access Approved - %s on %s", session.Spec.GrantedGroup, session.Spec.Cluster)
+	err = wc.mailQueue.Enqueue(
+		"session-approval-"+session.Name,
+		[]string{session.Spec.User},
+		subject,
+		body,
+	)
+	if err != nil {
+		log.Errorw("failed to enqueue approval email", "error", err, "session", session.Name, "to", session.Spec.User)
+		return
+	}
+
+	log.Infow("approval email enqueued for sending", "session", session.Name, "to", session.Spec.User)
 }
 
 // WithQueue sets the mail queue for asynchronous email sending

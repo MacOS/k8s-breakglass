@@ -120,6 +120,15 @@ spec:
           spec:
             description: BreakglassSessionSpec defines the desired state of BreakglassSession.
             properties:
+              allowIDPMismatch:
+                description: |-
+                  allowIDPMismatch indicates that this session should accept authorization requests from any IDP.
+                  Set to true when both the cluster and escalation do NOT specify IDP requirements.
+                  When false (default), the webhook will enforce that the requesting user's IDP matches
+                  the IDP that created the session (via identityProviderIssuer matching).
+                  This allows gradual migration to multi-IDP mode: sessions created before IDP tracking
+                  can continue to work with any IDP until explicitly migrated.
+                type: boolean
               cluster:
                 description: cluster is the name of the cluster the session is valid
                   for.
@@ -137,6 +146,19 @@ spec:
                 type: array
               grantedGroup:
                 description: grantedGroup is the group granted by the session.
+                type: string
+              identityProviderIssuer:
+                description: |-
+                  identityProviderIssuer is the OIDC issuer URL (from JWT 'iss' claim) of the IDP that authenticated the user.
+                  Set during session creation for validation and audit purposes.
+                  Must match the IdentityProvider.spec.issuer of the provider that authenticated the user.
+                  Used by webhook handler to validate the user's token is from the same IDP the session was created with.
+                type: string
+              identityProviderName:
+                description: |-
+                  identityProviderName is the name of the IdentityProvider CR that authenticated the user.
+                  Set during session creation based on the JWT issuer claim.
+                  Used for auditing which IDP authenticated the user and for webhook authorization validation.
                 type: string
               idleTimeout:
                 default: 1h
@@ -209,7 +231,9 @@ spec:
               conditions:
                 description: |-
                   conditions is an array of current observed BreakglassSession conditions.
-                  todo: implement 'Active' and 'Expired' conditions.
+                  Tracks conditions like Idle, Approved, Rejected, Expired, Canceled, Active, and SessionExpired
+                  Active condition: Set to True when session is approved and within validity window, False otherwise
+                  SessionExpired condition: Set to True when session validity period has ended, False while active
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.

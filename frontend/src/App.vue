@@ -1,14 +1,20 @@
 <script setup lang="ts">
-import { inject, computed, ref, onMounted } from "vue";
+import { inject, computed, ref, onMounted, watch } from "vue";
 import { decodeJwt } from "jose";
 import { useRoute } from "vue-router";
 
 import { AuthKey } from "@/keys";
 import { BrandingKey } from "@/keys";
-import { useUser } from "@/services/auth";
+import { useUser, currentIDPName } from "@/services/auth";
+import IDPSelector from "@/components/IDPSelector.vue";
+import DebugPanel from "@/components/DebugPanel.vue";
+import { getMultiIDPConfig } from "@/services/multiIDP";
+
 const auth = inject(AuthKey);
 const user = useUser();
 const authenticated = computed(() => user.value && !user.value?.expired);
+const selectedIDPName = ref<string | undefined>();
+const hasMultipleIDPs = ref(false);
 
 const route = useRoute();
 
@@ -20,35 +26,86 @@ const brandingFromBackend = inject(BrandingKey) as string | undefined;
 const brandingTitle = computed(() => brandingFromBackend ?? "Breakglass");
 
 async function refreshGroups() {
+  console.debug("[App.refreshGroups] Starting groups and IDP refresh");
   try {
     const at = await auth?.getAccessToken();
     if (at) {
       const decoded: any = decodeJwt(at);
-      // Debug output: log the decoded access token
-      console.debug("Decoded access token:", decoded);
-      let g = decoded?.groups || decoded?.group || [];
+      console.debug("[App.refreshGroups] Decoded access token keys:", Object.keys(decoded));
+      console.debug("[App.refreshGroups] Full decoded access token:", decoded);
+      
+      // Extract groups from various possible locations
+      let g = decoded?.groups || decoded?.group || decoded?.realm_access?.roles || [];
+      console.debug("[App.refreshGroups] Extracted groups from token:", g);
+      
       if (typeof g === "string") g = [g];
       if (Array.isArray(g)) groupsRef.value = g as string[]; else groupsRef.value = [];
-      console.debug("Groups from access token:", groupsRef.value);
+      console.debug("[App.refreshGroups] Final groups from access token:", groupsRef.value);
+      
+      // Also extract IDP info from token if available
+      if (decoded?.iss) {
+        console.debug("[App.refreshGroups] Found issuer in token:", decoded.iss);
+      }
+      
       return;
     }
+    console.warn("[App.refreshGroups] No access token available");
   } catch (err) {
-    console.warn("Error decoding access token for groups:", err);
+    console.warn("[App.refreshGroups] Error decoding access token for groups:", err);
   }
+  
+  // Fallback to user profile claims
   const claims: any = user.value?.profile || {};
-  // Debug output: log the user profile claims
-  console.debug("User profile claims:", claims);
-  let g = claims["groups"] || claims["group"] || [];
+  console.debug("[App.refreshGroups] User profile available:", !!user.value?.profile);
+  console.debug("[App.refreshGroups] User profile keys:", Object.keys(claims));
+  console.debug("[App.refreshGroups] User profile claims:", claims);
+  
+  let g = claims["groups"] || claims["group"] || claims["realm_access"]?.roles || [];
+  console.debug("[App.refreshGroups] Extracted groups from user profile:", g);
+  
   if (typeof g === "string") g = [g];
   groupsRef.value = Array.isArray(g) ? g : [];
-  console.debug("Groups from user profile claims:", groupsRef.value);
+  console.debug("[App.refreshGroups] Final groups from user profile:", groupsRef.value);
 }
 
 onMounted(refreshGroups);
 
+// Watch for user changes and refresh groups when user logs in/changes
+watch(() => user.value, () => {
+  console.debug("[App] User changed, refreshing groups and IDP info");
+  refreshGroups();
+}, { deep: true });
+
+// Check if multi-IDP is available
+async function checkMultiIDP() {
+  try {
+    console.debug("[App] Checking for multi-IDP configuration");
+    const config = await getMultiIDPConfig();
+    const idpCount = config && config.identityProviders ? config.identityProviders.length : 0;
+    hasMultipleIDPs.value = idpCount > 1;
+    console.debug(`[App] Multi-IDP check completed: found ${idpCount} IDPs`, {
+      hasMultiple: hasMultipleIDPs.value,
+      idps: config?.identityProviders?.map((idp) => ({ name: idp.name, displayName: idp.displayName })),
+    });
+  } catch (err) {
+    console.warn("[App] Multi-IDP config not available or error:", err);
+    hasMultipleIDPs.value = false;
+  }
+}
+
+onMounted(checkMultiIDP);
+
 const userNav = computed(() => {
   if (authenticated.value) {
   const groups = groupsRef.value;
+  const idpName = currentIDPName.value;
+  const descriptions: string[] = [];
+  if (idpName) {
+    descriptions.push(`Provider: ${idpName}`);
+  }
+  if (groups.length) {
+    descriptions.push(`Groups: ${groups.join(', ')}`);
+  }
     return [
       {
         type: "userInfo",
@@ -56,9 +113,10 @@ const userNav = computed(() => {
         name: user.value?.profile.name || user.value?.profile.email,
         email: user.value?.profile.email,
         badge: true,
-        description: groups.length ? `Groups: ${groups.join(', ')}` : undefined,
+        description: descriptions.length ? descriptions.join(' | ') : undefined,
       },
       { type: "divider" },
+      ...(idpName ? [{ type: "label", name: `Provider: ${idpName}` }] : []),
       ...(groups.length ? [{ type: "label", name: `Groups: ${groups.join(', ')}` }] : []),
       { type: "button", name: "Logout", id: "logout", onClick: logout, variant: "secondary" },
     ];
@@ -68,10 +126,28 @@ const userNav = computed(() => {
 
 
 function login() {
-  auth?.login({ path: route.fullPath });
+  console.debug("[App] Login initiated", {
+    selectedIDP: selectedIDPName.value,
+    hasMultipleIDPs: hasMultipleIDPs.value,
+    redirectPath: route.fullPath,
+  });
+
+  // If multiple IDPs available, require explicit selection
+  if (hasMultipleIDPs.value && !selectedIDPName.value) {
+    console.warn("[App] Login blocked: Multiple IDPs available but none selected");
+    alert("Please select an identity provider before logging in");
+    return;
+  }
+
+  // Pass the selected IDP (if any) to auth service
+  auth?.login({ 
+    path: route.fullPath, 
+    idpName: selectedIDPName.value || undefined 
+  });
 }
 
 function logout() {
+  console.debug("[App] Logout initiated");
   auth?.logout();
 }
 </script>
@@ -98,7 +174,24 @@ function logout() {
         </div>
 
         <div v-if="!authenticated" class="center" style="margin: 2rem 0;">
-          <scale-button @click="login">Log In</scale-button>
+          <!-- Show IDP selector if multiple IDPs available -->
+          <div v-if="hasMultipleIDPs" class="idp-login-section">
+            <IDPSelector 
+              escalationName="default"
+              v-model="selectedIDPName"
+              required
+            />
+            <scale-button 
+              @click="login"
+              :disabled="!selectedIDPName"
+              style="margin-top: 1rem;"
+            >
+              Log In
+            </scale-button>
+          </div>
+          
+          <!-- Show simple login button if single IDP -->
+          <scale-button v-else @click="login">Log In</scale-button>
         </div>
 
         <RouterView v-if="authenticated" />
@@ -106,6 +199,7 @@ function logout() {
 
       <ErrorToasts />
       <AutoLogoutWarning />
+      <DebugPanel />
     </scale-telekom-app-shell>
   </main>
 </template>
@@ -140,5 +234,5 @@ function logout() {
 <script lang="ts">
 import ErrorToasts from "@/components/ErrorToasts.vue";
 import AutoLogoutWarning from "@/components/AutoLogoutWarning.vue";
-export default { components: { ErrorToasts, AutoLogoutWarning } };
+export default { components: { ErrorToasts, AutoLogoutWarning, DebugPanel } };
 </script>
