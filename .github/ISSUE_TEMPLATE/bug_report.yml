@@ -117,6 +117,7 @@ body:
         - Keycloak
         - Other OIDC provider
         - Not applicable / not tested yet
+    validations:
       required: false
 
   - type: textarea
