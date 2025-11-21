@@ -77,6 +77,33 @@ func TestValidateURLFormat(t *testing.T) {
 	}
 }
 
+// TestValidateHTTPSURL tests HTTPS URL validation
+func TestValidateHTTPSURL(t *testing.T) {
+	tests := []struct {
+		name       string
+		url        string
+		shouldFail bool
+	}{
+		{name: "https URL", url: "https://secure.example.com", shouldFail: false},
+		{name: "http URL", url: "http://insecure.example.com", shouldFail: true},
+		{name: "empty string", url: "", shouldFail: false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			errs := validateHTTPSURL(tc.url, field.NewPath("test"))
+			hasError := len(errs) > 0
+
+			if tc.shouldFail && !hasError {
+				t.Errorf("expected error for URL %q, got none", tc.url)
+			}
+			if !tc.shouldFail && hasError {
+				t.Errorf("unexpected error for URL %q: %v", tc.url, errs)
+			}
+		})
+	}
+}
+
 // TestValidateEmailDomainList tests email domain list validation
 func TestValidateEmailDomainList(t *testing.T) {
 	tests := []struct {
@@ -132,6 +159,34 @@ func TestValidateStringListNoDuplicates(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			errs := validateStringListNoDuplicates(tc.values, field.NewPath("test"))
+			hasError := len(errs) > 0
+
+			if tc.shouldFail && !hasError {
+				t.Errorf("expected error for values %v, got none", tc.values)
+			}
+			if !tc.shouldFail && hasError {
+				t.Errorf("unexpected error for values %v: %v", tc.values, errs)
+			}
+		})
+	}
+}
+
+// TestValidateStringListEntriesNotEmpty ensures blank values are rejected when present in lists
+func TestValidateStringListEntriesNotEmpty(t *testing.T) {
+	tests := []struct {
+		name       string
+		values     []string
+		shouldFail bool
+	}{
+		{name: "all populated", values: []string{"a", "b"}, shouldFail: false},
+		{name: "empty list", values: []string{}, shouldFail: false},
+		{name: "with empty", values: []string{"a", ""}, shouldFail: true},
+		{name: "with whitespace", values: []string{"  ", "b"}, shouldFail: true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			errs := validateStringListEntriesNotEmpty(tc.values, field.NewPath("test"))
 			hasError := len(errs) > 0
 
 			if tc.shouldFail && !hasError {

@@ -66,19 +66,10 @@ server:
   tlsCertFile: /etc/tls/cert.crt      # optional
   tlsKeyFile: /etc/tls/key.key        # optional, for HTTPS
 
-authorizationserver:
-  url: https://keycloak.example.com   # OIDC provider URL
-  jwksEndpoint: "realms/master/protocol/openid-connect/certs"
-
 frontend:
-  oidcAuthority: https://keycloak.example.com/realms/master
-  oidcClientID: breakglass-ui
   baseURL: https://breakglass.example.com
-
-mail:
-  host: smtp.example.com              # Mail server for notifications
-  port: 587
-  insecureSkipVerify: false
+  brandingName: "My Breakglass"       # optional
+  uiFlavour: "oss"                    # optional: "oss", "telekom", or "neutral"
 
 kubernetes:
   context: ""                         # kubectl config context (empty = default)
@@ -86,6 +77,11 @@ kubernetes:
     - "keycloak:"
     - "oidc:"
 ```
+
+**Notes:**
+
+- **OIDC/IDP authentication** is managed via **IdentityProvider CRDs**. See [Identity Provider documentation](docs/identity-provider.md) for details.
+- **Email notifications** are managed via **MailProvider CRDs**. See [Mail Provider documentation](docs/mail-provider.md) for details.
 
 ### OIDC Group Prefix Handling
 

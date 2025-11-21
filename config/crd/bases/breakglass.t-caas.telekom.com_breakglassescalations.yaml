@@ -195,6 +195,13 @@ spec:
                   this escalation can sit idle without being used.
                 pattern: ^([0-9]+(ns|us|ms|s|m|h|d))+$
                 type: string
+              mailProvider:
+                description: |-
+                  mailProvider specifies which MailProvider to use for email notifications for this escalation.
+                  If empty, falls back to the cluster's MailProvider, then to the default MailProvider.
+                maxLength: 63
+                pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                type: string
               maxValidFor:
                 default: 1h
                 description: maxValidFor is the maximum amount of time a session for
@@ -241,24 +248,6 @@ spec:
             required:
             - allowed
             type: object
-            x-kubernetes-validations:
-            - message: either allowed.groups or allowed.clusters must be specified
-                and non-empty
-              rule: 'has(self.allowed.groups) || has(self.allowed.clusters) ? (self.allowed.groups.size()
-                > 0 || self.allowed.clusters.size() > 0) : false'
-            - message: approvers must specify at least one user or group
-              rule: 'has(self.approvers) && (has(self.approvers.users) || has(self.approvers.groups))
-                ? (self.approvers.users.size() > 0 || self.approvers.groups.size()
-                > 0) : true'
-            - message: allowedIdentityProviders is mutually exclusive with allowedIdentityProvidersForRequests
-              rule: '!(has(self.allowedIdentityProviders) && self.allowedIdentityProviders.size()
-                > 0) || !(has(self.allowedIdentityProvidersForRequests) && self.allowedIdentityProvidersForRequests.size()
-                > 0)'
-            - message: allowedIdentityProvidersForRequests and allowedIdentityProvidersForApprovers
-                must both be set or both be empty
-              rule: (has(self.allowedIdentityProvidersForRequests) && self.allowedIdentityProvidersForRequests.size()
-                > 0) == (has(self.allowedIdentityProvidersForApprovers) && self.allowedIdentityProvidersForApprovers.size()
-                > 0)
           status:
             description: BreakglassEscalationStatus defines the observed state of
               BreakglassEscalation.

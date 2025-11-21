@@ -23,24 +23,20 @@ Edit `config.yaml` with your settings:
 server:
   listenAddress: :8080
 
-authorizationserver:
-  url: https://keycloak.example.com
-  jwksEndpoint: "realms/master/protocol/openid-connect/certs"
-
 frontend:
-  identityProviderName: "production-idp"  # REQUIRED
   baseURL: https://breakglass.example.com
-
-mail:
-  host: smtp.example.com
-  port: 587
-  senderAddress: breakglass@example.com
+  brandingName: "My Breakglass"  # optional
 
 kubernetes:
   context: ""
   oidcPrefixes:
     - "oidc:"
 ```
+
+**Notes:**
+
+- **OIDC/IDP configuration** is managed via **IdentityProvider CRDs** (see step 2)
+- **Email configuration** is managed via **MailProvider CRDs** (see step 3)
 
 ## 2. Create IdentityProvider Resource
 
@@ -72,7 +68,50 @@ Verify:
 kubectl get identityproviders
 ```
 
-## 3. Deploy to Hub Cluster
+## 3. Create MailProvider Resource
+
+**This is REQUIRED** for email notifications.
+
+Create `mail-provider.yaml`:
+
+```yaml
+apiVersion: breakglass.t-caas.telekom.com/v1alpha1
+kind: MailProvider
+metadata:
+  name: production-smtp
+spec:
+  displayName: "Production SMTP"
+  default: true
+  smtp:
+    host: smtp.example.com
+    port: 587
+    username: breakglass@example.com
+    passwordRef:
+      name: smtp-credentials
+      namespace: breakglass-system
+      key: password
+  sender:
+    address: noreply@example.com
+    name: "Breakglass System"
+```
+
+Create SMTP secret and deploy:
+
+```bash
+kubectl create secret generic smtp-credentials \
+  -n breakglass-system \
+  --from-literal=password=<smtp-password>
+
+kubectl apply -f mail-provider.yaml
+```
+
+Verify:
+
+```bash
+kubectl get mailproviders
+```
+
+## 4. Deploy to Hub Cluster
 
 Update deployment configuration:
 
@@ -284,20 +323,39 @@ Open browser to: `https://breakglass.example.com`
 3. Configure webhook on each cluster
 4. Update `BreakglassEscalation` to include new clusters
 
-### Set Up Notifications
+### Set Up Email Notifications
 
-Configure email service in `config.yaml`:
+Email notifications are configured via **MailProvider CRDs**:
 
 ```yaml
-mail:
-  host: smtp.example.com
-  port: 587
-  username: breakglass
-  password: <secure-password>
-  fromAddress: breakglass@example.com
+apiVersion: breakglass.t-caas.telekom.com/v1alpha1
+kind: MailProvider
+metadata:
+  name: production-smtp
+spec:
+  displayName: "Production SMTP"
+  default: true
+  smtp:
+    host: smtp.example.com
+    port: 587
+    username: breakglass@example.com
+    passwordRef:
+      name: smtp-credentials
+      key: password
+  sender:
+    address: breakglass@example.com
+    name: "Breakglass System"
 ```
 
-Approvers receive email notifications for new requests.
+Create the credentials secret:
+
+```bash
+kubectl create secret generic smtp-credentials \
+  -n breakglass-system \
+  --from-literal=password=<secure-password>
+```
+
+Approvers receive email notifications for new requests. See [Mail Provider documentation](./mail-provider.md) for more configuration options.
 
 ### Enable TLS
 

@@ -26,32 +26,38 @@ type sender struct {
 	retryBackoffMs int
 }
 
-func NewSender(cfg config.Config) Sender {
-	log.Printf("[mail] Initializing new mail sender for host: %s, port: %d, user: %s", cfg.Mail.Host, cfg.Mail.Port, cfg.Mail.User)
-	d := gomail.NewDialer(cfg.Mail.Host, cfg.Mail.Port, cfg.Mail.User, cfg.Mail.Password)
-	if cfg.Mail.InsecureSkipVerify {
+// NewSenderFromMailProvider creates a mail sender from MailProvider configuration
+func NewSenderFromMailProvider(mpConfig *config.MailProviderConfig, brandingName string) Sender {
+	log.Printf("[mail] Initializing mail sender from MailProvider: %s (host: %s, port: %d)",
+		mpConfig.Name, mpConfig.Host, mpConfig.Port)
+
+	d := gomail.NewDialer(mpConfig.Host, mpConfig.Port, mpConfig.Username, mpConfig.Password)
+
+	if mpConfig.InsecureSkipVerify {
 		log.Printf("[mail] InsecureSkipVerify is enabled for mail TLS connection")
 		d.TLSConfig = &tls.Config{InsecureSkipVerify: true}
 	}
-	// Determine sender address and name, use sensible defaults when missing
-	senderAddr := cfg.Mail.SenderAddress
+
+	// Use provider's sender configuration
+	senderAddr := mpConfig.SenderAddress
 	if senderAddr == "" {
-		senderAddr = "noreply@schiff.telekom.de"
+		senderAddr = "noreply@breakglass.local"
 	}
-	senderName := cfg.Mail.SenderName
-	if senderName == "" && cfg.Frontend.BrandingName != "" {
-		senderName = cfg.Frontend.BrandingName
+
+	senderName := mpConfig.SenderName
+	if senderName == "" && brandingName != "" {
+		senderName = brandingName
 	}
 	if senderName == "" {
 		senderName = "Breakglass"
 	}
 
-	// Set retry defaults if not configured
-	retryCount := cfg.Mail.RetryCount
+	retryCount := mpConfig.RetryCount
 	if retryCount <= 0 {
 		retryCount = 3
 	}
-	retryBackoffMs := cfg.Mail.RetryBackoffMs
+
+	retryBackoffMs := mpConfig.RetryBackoffMs
 	if retryBackoffMs <= 0 {
 		retryBackoffMs = 100
 	}

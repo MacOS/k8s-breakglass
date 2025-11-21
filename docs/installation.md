@@ -42,21 +42,10 @@ server:
   tlsCertFile: /etc/breakglass/tls/tls.crt
   tlsKeyFile: /etc/breakglass/tls/tls.key
 
-authorizationserver:
-  url: https://keycloak.example.com/realms/master
-  jwksEndpoint: "protocol/openid-connect/certs"
-
 frontend:
-  identityProviderName: production-idp  # REQUIRED - name of IdentityProvider CR
   baseURL: https://breakglass.example.com
   brandingName: "Das SCHIFF Breakglass"
-
-mail:
-  host: smtp.example.com
-  port: 587
-  username: breakglass
-  password: <secure-password>
-  senderAddress: breakglass-noreply@example.com
+  uiFlavour: "oss"  # optional: "oss", "telekom", or "neutral"
 
 kubernetes:
   context: ""
@@ -64,7 +53,10 @@ kubernetes:
     - "oidc:"
 ```
 
-**Important:** The `identityProviderName` field in `frontend` section is **REQUIRED**. It must reference a valid IdentityProvider resource that will be created in the next step.
+**Notes:**
+
+- **OIDC/IDP configuration** is now managed via **IdentityProvider CRDs** (see next step). The legacy `authorizationserver` and `frontend.identityProviderName` fields have been removed.
+- **Email configuration** is now managed via **MailProvider CRDs** (see Step 4). The legacy `mail` section in config.yaml has been removed.
 
 For complete configuration options, see [Configuration Reference](./configuration-reference.md).
 
@@ -145,7 +137,81 @@ kubectl apply -f identity-provider.yaml
 
 **Note:** The Keycloak service account should have **view-users** and **view-groups** permissions only (no admin rights).
 
-## Step 4: Create Secrets
+## Step 4: Create MailProvider Resource
+
+**MailProvider is REQUIRED** for email notifications. Create the MailProvider resource to configure SMTP settings.
+
+### 4a. Create Basic SMTP Configuration
+
+```yaml
+# mail-provider.yaml
+apiVersion: breakglass.t-caas.telekom.com/v1alpha1
+kind: MailProvider
+metadata:
+  name: production-smtp
+spec:
+  displayName: "Production SMTP Server"
+  default: true
+  smtp:
+    host: smtp.example.com
+    port: 587
+    username: breakglass@example.com
+    passwordRef:
+      name: smtp-credentials
+      namespace: breakglass-system
+      key: password
+  sender:
+    address: noreply@example.com
+    name: "Breakglass System"
+  retry:
+    count: 3
+    initialBackoffMs: 100
+    queueSize: 1000
+```
+
+Create SMTP credentials secret:
+
+```bash
+kubectl create secret generic smtp-credentials \
+  -n breakglass-system \
+  --from-literal=password=<smtp-password>
+```
+
+Apply MailProvider:
+
+```bash
+kubectl apply -f mail-provider.yaml
+```
+
+Verify:
+
+```bash
+kubectl get mailproviders
+```
+
+### 4b. Unauthenticated SMTP Relay (Internal)
+
+For internal SMTP relays without authentication:
+
+```yaml
+apiVersion: breakglass.t-caas.telekom.com/v1alpha1
+kind: MailProvider
+metadata:
+  name: internal-relay
+spec:
+  displayName: "Internal SMTP Relay"
+  default: true
+  smtp:
+    host: smtp-relay.internal
+    port: 25
+  sender:
+    address: noreply@company.internal
+    name: "Breakglass"
+```
+
+For complete MailProvider configuration options and examples (Gmail, Office 365, AWS SES, etc.), see [Mail Provider documentation](./mail-provider.md).
+
+## Step 5: Create Secrets
 
 Create TLS secret:
 
@@ -164,7 +230,7 @@ kubectl create secret generic breakglass-config \
   --from-file=config.yaml=config.yaml
 ```
 
-## Step 5: Build and Push Image
+## Step 6: Build and Push Image
 
 Build image (use OSS flavour):
 
@@ -179,7 +245,7 @@ docker tag breakglass:v1.0.0 myregistry.example.com/breakglass:v1.0.0
 docker push myregistry.example.com/breakglass:v1.0.0
 ```
 
-## Step 6: Deploy to Hub Cluster
+## Step 7: Deploy to Hub Cluster
 
 Update deployment manifests with your image:
 
@@ -203,7 +269,7 @@ kubectl get pods -n breakglass-system
 kubectl get crd | grep breakglass
 ```
 
-## Step 7: Expose Breakglass Service
+## Step 8: Expose Breakglass Service
 
 Create Ingress for external access:
 
@@ -243,11 +309,11 @@ Verify DNS resolution:
 nslookup breakglass.example.com
 ```
 
-## Step 8: Configure Tenant Clusters
+## Step 9: Configure Tenant Clusters
 
 For each tenant cluster:
 
-### 7a. Create Webhook Kubeconfig
+### 9a. Create Webhook Kubeconfig
 
 Create `/etc/kubernetes/breakglass-webhook-kubeconfig.yaml`:
 
@@ -273,14 +339,16 @@ current-context: webhook
 
 ### 7b. Create Authorization Config
 
-Create `/etc/kubernetes/authorization-config.yaml`:
+```
+
+### 9b. Create Authorization Config
+
+Create `/etc/kubernetes/breakglass-authz.yaml`:
 
 ```yaml
-apiVersion: apiserver.config.k8s.io/v1beta1
+apiVersion: apiserver.config.k8s.io/v1
 kind: AuthorizationConfiguration
 authorizers:
-  - type: Node
-    name: node
   - type: RBAC
     name: rbac
   - type: Webhook
@@ -299,6 +367,8 @@ authorizers:
         - expression: "!request.user.startsWith('system:')"
         - expression: "!('system:serviceaccounts' in request.groups)"
 ```
+
+### 9c. Update API Server
 
 ### 7c. Update API Server
 
@@ -345,7 +415,7 @@ Verify webhook is active:
 kubectl auth can-i get pods --as=test-user
 ```
 
-## Step 8: Connect Tenant Clusters to Hub
+## Step 10: Connect Tenant Clusters to Hub
 
 Create admin secret for each tenant:
 
@@ -368,6 +438,9 @@ spec:
   kubeconfigSecretRef:
     name: prod-cluster-1-admin
     namespace: default
+```
+
+## Step 11: Create Escalation Policies
   qps: 100
   burst: 200
 ```
@@ -411,7 +484,7 @@ Deploy:
 kubectl apply -f escalation.yaml
 ```
 
-## Step 10: Test Installation
+## Step 12: Test Installation
 
 Request access:
 
@@ -447,7 +520,7 @@ Test authorization on tenant cluster:
 kubectl get pods --all-namespaces
 ```
 
-## Step 11: Verify and Secure
+## Step 13: Verify and Secure
 
 Verify all pods running:
 
