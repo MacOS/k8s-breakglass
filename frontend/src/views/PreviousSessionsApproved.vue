@@ -3,6 +3,7 @@ import { ref, onMounted, inject, computed } from "vue";
 import { AuthKey } from "@/keys";
 import BreakglassService from "@/services/breakglass";
 import { format24Hour, debugLogDateTime } from "@/utils/dateTime";
+import { statusToneFor } from "@/utils/statusStyles";
 
 const auth = inject(AuthKey);
 const breakglassService = new BreakglassService(auth!);
@@ -26,39 +27,51 @@ onMounted(async () => {
 
 function formatDate(ts: string | number) {
   if (!ts) return "-";
-  debugLogDateTime('formatDate', typeof ts === 'string' ? ts : new Date(ts).toISOString());
-  return format24Hour(typeof ts === 'string' ? ts : new Date(ts).toISOString());
+  debugLogDateTime("formatDate", typeof ts === "string" ? ts : new Date(ts).toISOString());
+  return format24Hour(typeof ts === "string" ? ts : new Date(ts).toISOString());
 }
 
 function startedForDisplay(s: any) {
-  return s.started || (s.status && s.status.startedAt) || s.metadata?.creationTimestamp || s.createdAt || s.creationTimestamp || null;
+  return (
+    s.started ||
+    (s.status && s.status.startedAt) ||
+    s.metadata?.creationTimestamp ||
+    s.createdAt ||
+    s.creationTimestamp ||
+    null
+  );
 }
 
 function endedForDisplay(s: any) {
-  const st = (s.status && s.status.state) ? s.status.state.toString().toLowerCase() : (s.state || '').toLowerCase();
-  if (st === 'approved' || st === 'active') return null;
+  const st = s.status && s.status.state ? s.status.state.toString().toLowerCase() : (s.state || "").toLowerCase();
+  if (st === "approved" || st === "active") return null;
   return s.ended || (s.status && (s.status.endedAt || s.status.expiresAt)) || s.expiry || null;
 }
 
 function reasonEndedLabel(s: any): string {
   if (s.reasonEnded) return s.reasonEnded;
   if (s.terminationReason) return s.terminationReason;
-  switch ((s.state || '').toLowerCase()) {
-    case 'withdrawn':
-      return 'Withdrawn by user';
-    case 'approvaltimeout':
-      return 'Approval timed out';
-    case 'rejected':
-      return 'Rejected';
-    case 'expired':
-      return 'Session expired';
-    case 'approved':
-      return 'Active';
-    case 'pending':
-      return 'Pending';
+  switch ((s.state || "").toLowerCase()) {
+    case "withdrawn":
+      return "Withdrawn by user";
+    case "approvaltimeout":
+      return "Approval timed out";
+    case "rejected":
+      return "Rejected";
+    case "expired":
+      return "Session expired";
+    case "approved":
+      return "Active";
+    case "pending":
+      return "Pending";
     default:
-      return s.state || '-';
+      return s.state || "-";
   }
+}
+
+function statusTone(s: any): string {
+  const rawState = s.status?.state || s.state;
+  return `tone-${statusToneFor(rawState)}`;
 }
 
 // Filter out sessions where I am the requester
@@ -71,44 +84,53 @@ onMounted(async () => {
 
 const approverSessions = computed(() =>
   // Prefer explicit status.approver / status.approvers set by backend; fall back to scanning conditions
-  sessions.value.filter(s => {
+  sessions.value.filter((s) => {
     if (!s || !s.status) return false;
     // explicit approver field
     if (s.status.approver && authEmail.value && s.status.approver === authEmail.value) return true;
     // explicit approvers array
-    if (Array.isArray(s.status.approvers) && authEmail.value && s.status.approvers.includes(authEmail.value)) return true;
+    if (Array.isArray(s.status.approvers) && authEmail.value && s.status.approvers.includes(authEmail.value))
+      return true;
     // fallback: scan conditions for approver email in message
     if (Array.isArray(s.status.conditions)) {
-      return s.status.conditions.some((c: any) => typeof c.message === 'string' && c.message.includes(authEmail.value));
+      return s.status.conditions.some((c: any) => typeof c.message === "string" && c.message.includes(authEmail.value));
     }
     return false;
-  })
+  }),
 );
 </script>
 
 <template>
   <main class="container">
     <h2>Sessions I Approved</h2>
-    <div v-if="loading" class="loading-state">Loading...</div>
-    <div v-else-if="error" class="error-state">{{ error }}</div>
+    <scale-loading-spinner v-if="loading" />
+    <scale-notification v-else-if="error" variant="danger" :heading="error" />
     <div v-else-if="approverSessions.length === 0" class="empty-state">
       <p>No previous sessions found.</p>
     </div>
     <div v-else class="sessions-list">
-      <div v-for="s in approverSessions" :key="s.id || s.name || s.group + s.cluster + s.expiry" class="session-card">
+      <scale-card
+        v-for="s in approverSessions"
+        :key="s.id || s.name || s.group + s.cluster + s.expiry"
+        class="session-card"
+      >
         <!-- Header -->
         <div class="card-header">
           <div class="header-left">
             <div class="session-name">{{ s.name }}</div>
             <div class="cluster-group">
-              <span class="cluster-tag">{{ s.cluster }}</span>
-              <span class="group-tag">{{ s.group }}</span>
+              <scale-chip variant="primary">{{ s.cluster }}</scale-chip>
+              <scale-chip variant="success">{{ s.group }}</scale-chip>
             </div>
           </div>
           <div class="header-right">
-            <span :class="['status-badge', 'status-' + (s.state || '').toLowerCase()]">
-              {{ s.state || '-' }}
-            </span>
+            <scale-chip
+              :variant="
+                statusTone(s) === 'tone-success' ? 'success' : statusTone(s) === 'tone-warning' ? 'warning' : 'neutral'
+              "
+            >
+              {{ s.state || "-" }}
+            </scale-chip>
           </div>
         </div>
 
@@ -116,7 +138,7 @@ const approverSessions = computed(() =>
         <div class="actors-section">
           <div class="actor-item">
             <span class="actor-label">👤 User:</span>
-            <span class="actor-value">{{ (s.spec && (s.spec.user || s.spec.requester)) || '-' }}</span>
+            <span class="actor-value">{{ (s.spec && (s.spec.user || s.spec.requester)) || "-" }}</span>
           </div>
           <div v-if="s.spec && s.spec.identityProviderName" class="actor-item">
             <span class="actor-label">🔐 IDP:</span>
@@ -124,11 +146,20 @@ const approverSessions = computed(() =>
           </div>
           <div v-if="s.spec && s.spec.identityProviderIssuer" class="actor-item">
             <span class="actor-label">🔗 Issuer:</span>
-            <span class="actor-value" style="font-family: 'Courier New', monospace; font-size: 0.9rem;">{{ s.spec.identityProviderIssuer }}</span>
+            <span class="actor-value" style="font-family: &quot;Courier New&quot;, monospace; font-size: 0.9rem">{{
+              s.spec.identityProviderIssuer
+            }}</span>
           </div>
           <div class="actor-item">
             <span class="actor-label">✓ Approved by:</span>
-            <span class="actor-value">{{ s.status && (s.status.approver || (s.status.approvers && s.status.approvers.length ? s.status.approvers[s.status.approvers.length-1] : null)) || '-' }}</span>
+            <span class="actor-value">{{
+              (s.status &&
+                (s.status.approver ||
+                  (s.status.approvers && s.status.approvers.length
+                    ? s.status.approvers[s.status.approvers.length - 1]
+                    : null))) ||
+              "-"
+            }}</span>
           </div>
         </div>
 
@@ -136,11 +167,17 @@ const approverSessions = computed(() =>
         <div class="timeline">
           <div class="timeline-item">
             <span class="timeline-label">Scheduled:</span>
-            <span class="timeline-value">{{ s.spec && s.spec.scheduledStartTime ? formatDate(s.spec.scheduledStartTime) : '-' }}</span>
+            <span class="timeline-value">{{
+              s.spec && s.spec.scheduledStartTime ? formatDate(s.spec.scheduledStartTime) : "-"
+            }}</span>
           </div>
           <div class="timeline-item">
             <span class="timeline-label">Started:</span>
-            <span class="timeline-value">{{ s.status && s.status.actualStartTime ? formatDate(s.status.actualStartTime) : formatDate(startedForDisplay(s)) }}</span>
+            <span class="timeline-value">{{
+              s.status && s.status.actualStartTime
+                ? formatDate(s.status.actualStartTime)
+                : formatDate(startedForDisplay(s))
+            }}</span>
           </div>
           <div class="timeline-item">
             <span class="timeline-label">Ended:</span>
@@ -161,10 +198,8 @@ const approverSessions = computed(() =>
         </div>
 
         <!-- End reason -->
-        <div v-if="reasonEndedLabel(s)" class="end-reason">
-          <strong>Ended:</strong> {{ reasonEndedLabel(s) }}
-        </div>
-      </div>
+        <div v-if="reasonEndedLabel(s)" class="end-reason"><strong>Ended:</strong> {{ reasonEndedLabel(s) }}</div>
+      </scale-card>
     </div>
   </main>
 </template>
@@ -177,7 +212,7 @@ const approverSessions = computed(() =>
 }
 
 h2 {
-  color: #0b0b0b;
+  color: var(--telekom-color-text-and-icon-standard);
   margin-bottom: 1.5rem;
   font-size: 1.8rem;
 }
@@ -186,16 +221,16 @@ h2 {
 .empty-state {
   text-align: center;
   padding: 2rem;
-  color: #666;
+  color: var(--telekom-color-text-and-icon-additional);
   font-size: 1.1rem;
 }
 
 .error-state {
-  background-color: #ffebee;
-  color: #c62828;
+  background-color: var(--telekom-color-functional-danger-subtle);
+  color: var(--telekom-color-functional-danger-standard);
   padding: 1rem;
   border-radius: 6px;
-  border-left: 4px solid #c62828;
+  border-left: 4px solid var(--telekom-color-functional-danger-standard);
   text-align: center;
   margin: 1rem 0;
 }
@@ -207,17 +242,13 @@ h2 {
 }
 
 .session-card {
-  background: white;
-  border: 1px solid #e0e0e0;
-  border-radius: 8px;
-  padding: 1.5rem;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  --scale-card-padding: 1.5rem;
   transition: all 0.2s ease;
 }
 
 .session-card:hover {
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
-  border-color: #4CAF50;
+  box-shadow: var(--telekom-shadow-floating-hover);
+  border-color: var(--telekom-color-functional-success-standard);
 }
 
 /* Header section */
@@ -228,7 +259,7 @@ h2 {
   margin-bottom: 1rem;
   gap: 1rem;
   padding-bottom: 1rem;
-  border-bottom: 2px solid #f0f0f0;
+  border-bottom: 2px solid var(--telekom-color-ui-border-standard);
 }
 
 .header-left {
@@ -238,82 +269,15 @@ h2 {
 .session-name {
   font-size: 1.2rem;
   font-weight: bold;
-  color: #4CAF50;
+  color: var(--telekom-color-functional-success-standard);
   margin-bottom: 0.5rem;
-  font-family: 'Courier New', monospace;
+  font-family: "Courier New", monospace;
 }
 
 .cluster-group {
   display: flex;
   gap: 0.5rem;
   flex-wrap: wrap;
-}
-
-.cluster-tag,
-.group-tag {
-  display: inline-block;
-  background-color: #f0f0f0;
-  color: #555;
-  padding: 4px 10px;
-  border-radius: 12px;
-  font-size: 0.85rem;
-  font-weight: 500;
-}
-
-.cluster-tag {
-  border-left: 3px solid #0070b8;
-}
-
-.group-tag {
-  border-left: 3px solid #4CAF50;
-}
-
-/* Status badge */
-.status-badge {
-  display: inline-block;
-  padding: 6px 12px;
-  border-radius: 6px;
-  font-weight: 600;
-  font-size: 0.85rem;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
-.status-approved,
-.status-active {
-  background-color: #c8e6c9;
-  color: #2e7d32;
-  border: 1px solid #4CAF50;
-}
-
-.status-rejected {
-  background-color: #ffcdd2;
-  color: #c62828;
-  border: 1px solid #ef5350;
-}
-
-.status-withdrawn {
-  background-color: #fff9c4;
-  color: #f57f17;
-  border: 1px solid #fbc02d;
-}
-
-.status-expired {
-  background-color: #eceff1;
-  color: #455a64;
-  border: 1px solid #90a4ae;
-}
-
-.status-pending {
-  background-color: #e3f2fd;
-  color: #1565c0;
-  border: 1px solid #2196F3;
-}
-
-.status-approvaltimeout {
-  background-color: #ffe0b2;
-  color: #e65100;
-  border: 1px solid #ff9800;
 }
 
 /* Actors section */
@@ -333,12 +297,12 @@ h2 {
 
 .actor-label {
   font-weight: 600;
-  color: #555;
+  color: var(--telekom-color-text-and-icon-additional);
 }
 
 .actor-value {
-  color: #333;
-  font-family: 'Courier New', monospace;
+  color: var(--telekom-color-text-and-icon-standard);
+  font-family: "Courier New", monospace;
 }
 
 /* Timeline */
@@ -347,8 +311,8 @@ h2 {
   flex-wrap: wrap;
   gap: 1.5rem;
   padding: 1rem 0;
-  border-top: 1px solid #eee;
-  border-bottom: 1px solid #eee;
+  border-top: 1px solid var(--telekom-color-ui-border-standard);
+  border-bottom: 1px solid var(--telekom-color-ui-border-standard);
   margin: 1rem 0;
   font-size: 0.9rem;
 }
@@ -360,16 +324,16 @@ h2 {
 
 .timeline-label {
   font-weight: 600;
-  color: #555;
+  color: var(--telekom-color-text-and-icon-additional);
   display: block;
   margin-bottom: 0.25rem;
 }
 
 .timeline-value {
-  color: #333;
+  color: var(--telekom-color-text-and-icon-standard);
   display: block;
   font-size: 0.85rem;
-  font-family: 'Courier New', monospace;
+  font-family: "Courier New", monospace;
 }
 
 /* Reasons section */
@@ -381,29 +345,29 @@ h2 {
 }
 
 .reason-box {
-  background-color: #f5f5f5;
-  border-left: 3px solid #2196F3;
+  background-color: var(--telekom-color-ui-subtle);
+  border-left: 3px solid var(--telekom-color-primary-standard);
   padding: 1rem;
   border-radius: 4px;
 }
 
 .reason-box.approval-reason {
-  border-left-color: #4CAF50;
+  border-left-color: var(--telekom-color-functional-success-standard);
 }
 
 .reason-title {
-  color: #1976D2;
+  color: var(--telekom-color-primary-standard);
   display: block;
   margin-bottom: 0.5rem;
   font-size: 0.9rem;
 }
 
 .reason-box.approval-reason .reason-title {
-  color: #2e7d32;
+  color: var(--telekom-color-functional-success-standard);
 }
 
 .reason-text {
-  color: #333;
+  color: var(--telekom-color-text-and-icon-standard);
   line-height: 1.5;
   white-space: pre-wrap;
   word-break: break-word;
@@ -411,16 +375,16 @@ h2 {
 
 /* End reason */
 .end-reason {
-  background-color: #ffebee;
-  border-left: 3px solid #c62828;
+  background-color: var(--telekom-color-functional-danger-subtle);
+  border-left: 3px solid var(--telekom-color-functional-danger-standard);
   padding: 0.75rem 1rem;
   border-radius: 4px;
-  color: #c62828;
+  color: var(--telekom-color-functional-danger-standard);
   font-size: 0.9rem;
 }
 
 .end-reason strong {
-  color: #b71c1c;
+  color: var(--telekom-color-functional-danger-standard);
 }
 
 /* Responsive design */

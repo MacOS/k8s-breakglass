@@ -1,4 +1,5 @@
 /* eslint-env node */
+// eslint-disable-next-line @typescript-eslint/no-require-imports
 require("@rushstack/eslint-patch/modern-module-resolution");
 
 module.exports = {
@@ -10,5 +11,6 @@ module.exports = {
   rules: {
     "vue/hypenize-parameters": "off",
     "vue/v-on-event-hyphenation": "off",
+    "@typescript-eslint/no-explicit-any": "off",
   },
 };

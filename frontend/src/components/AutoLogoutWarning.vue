@@ -1,36 +1,83 @@
 <template>
-  <div v-if="show" class="auto-logout-warning">
-    <div class="warning-content">
-      <h2>Session Expiring Soon</h2>
-      <p>Your session will expire in less than a minute. Please interact with the app to stay logged in, or <button @click="logout">Log out now</button>.</p>
+  <transition name="fade-slide">
+    <div v-if="show" class="auto-logout-warning-container" role="status" aria-live="polite">
+      <scale-notification
+        heading="Session expiring soon"
+        variant="warning"
+        opened
+        class="logout-notification"
+        @scale-close="dismiss"
+      >
+        <p class="warning-copy">
+          Your session will expire shortly. Click stay logged in to silently renew, or log out if you are finished.
+        </p>
+        <div class="warning-actions">
+          <scale-button variant="primary" size="small" :loading="renewing" @click="stayLoggedIn">
+            Stay logged in
+          </scale-button>
+          <scale-button variant="secondary" size="small" @click="dismiss">Dismiss</scale-button>
+          <scale-button variant="ghost" size="small" @click="logout">Log out</scale-button>
+        </div>
+      </scale-notification>
     </div>
-  </div>
+  </transition>
 </template>
 
 <script lang="ts">
-import { inject, onMounted, onUnmounted, ref } from 'vue';
-import AuthService from '@/services/auth';
-import { AuthKey } from '@/keys';
+import { inject, onMounted, onUnmounted, ref } from "vue";
+import AuthService from "@/services/auth";
+import { AuthKey } from "@/keys";
 
 export default {
-  name: 'AutoLogoutWarning',
+  name: "AutoLogoutWarning",
   setup() {
     const show = ref(false);
+    const renewing = ref(false);
+    const dismissed = ref(false);
     let timer: number | null = null;
     const auth = inject(AuthKey) as AuthService;
+    const WARNING_THRESHOLD_MS = 30000; // 30 seconds
 
     function logout() {
       auth?.logout();
     }
 
+    async function stayLoggedIn() {
+      if (!auth || renewing.value) return;
+      renewing.value = true;
+      try {
+        await auth.userManager.signinSilent();
+        show.value = false;
+        dismissed.value = false;
+      } catch (err) {
+        console.warn("[AutoLogoutWarning] Silent renew failed", err);
+      } finally {
+        renewing.value = false;
+      }
+    }
+
+    function dismiss() {
+      dismissed.value = true;
+      show.value = false;
+    }
+
     function checkExpiring() {
-      const userStr = localStorage.getItem('oidc.user:' + auth?.userManager.settings.authority + ':' + auth?.userManager.settings.client_id);
+      const userStr = localStorage.getItem(
+        "oidc.user:" + auth?.userManager.settings.authority + ":" + auth?.userManager.settings.client_id,
+      );
       if (userStr) {
         try {
           const parsed = JSON.parse(userStr);
           if (parsed && parsed.expires_at) {
             const expiresIn = parsed.expires_at * 1000 - Date.now();
-            show.value = expiresIn < 60000 && expiresIn > 0;
+            if (expiresIn < WARNING_THRESHOLD_MS && expiresIn > 0 && !dismissed.value) {
+              show.value = true;
+            } else {
+              show.value = false;
+              if (expiresIn > WARNING_THRESHOLD_MS) {
+                dismissed.value = false;
+              }
+            }
           }
         } catch {}
       }
@@ -43,48 +90,45 @@ export default {
       if (timer) clearInterval(timer);
     });
 
-    return { show, logout };
-  }
+    return { show, logout, stayLoggedIn, dismiss, renewing };
+  },
 };
 </script>
 
 <style scoped>
-.auto-logout-warning {
+.auto-logout-warning-container {
   position: fixed;
-  top: 0;
-  left: 0;
-  width: 100vw;
-  height: 100vh;
-  background: rgba(0,0,0,0.4);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 9999;
+  bottom: 1.5rem;
+  right: 1.5rem;
+  z-index: 3000;
+  max-width: 400px;
+  width: 100%;
 }
-.warning-content {
-  background: #fffbe6;
-  border: 2px solid #ffb300;
-  border-radius: 10px;
-  padding: 2rem 2.5rem;
-  box-shadow: 0 2px 16px rgba(0,0,0,0.12);
-  text-align: center;
-  color: #222; /* ensure readable text on all themes */
+
+.logout-notification {
+  width: 100%;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
 }
-.warning-content h2 {
-  color: #d9006c;
+
+.warning-copy {
   margin-bottom: 1rem;
 }
-.warning-content button {
-  background: #d9006c;
-  color: #fff;
-  border: none;
-  border-radius: 5px;
-  padding: 0.5em 1.2em;
-  font-weight: 600;
-  cursor: pointer;
-  margin-left: 0.5em;
+
+.warning-actions {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+  flex-wrap: wrap;
 }
-.warning-content button:hover {
-  background: #b8005a;
+
+.fade-slide-enter-active,
+.fade-slide-leave-active {
+  transition: all 0.3s ease;
+}
+
+.fade-slide-enter-from,
+.fade-slide-leave-to {
+  opacity: 0;
+  transform: translateY(20px);
 }
 </style>

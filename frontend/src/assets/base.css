@@ -1,88 +1,405 @@
-:root{
-  /* sensible defaults to make the app look clean across environments */
-  --app-max-width: 1100px;
+:root {
+  font-family: "TeleNeo Web", "TeleNeo", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-weight: 400;
+  line-height: 1.5;
+  text-rendering: optimizeLegibility;
+  color: var(--telekom-color-text-and-icon-standard);
+  background-color: var(--surface-primary);
+  color-scheme: light;
+
+  --surface-primary: var(--telekom-color-white);
+  --surface-elevated: var(--telekom-ui-color-surface-subtle);
+  --surface-card: var(--telekom-color-white);
+  --surface-card-subtle: color-mix(in srgb, var(--telekom-color-gray-200) 25%, transparent);
+  --surface-toolbar: var(--telekom-color-white);
+  --border-strong: color-mix(in srgb, var(--telekom-color-gray-900) 35%, transparent);
+  --shadow-card: 0 12px 40px color-mix(in srgb, var(--telekom-color-black) 15%, transparent);
+
+  --focus-outline: var(--telekom-color-blue-500);
+
+  --accent-telekom: var(--telekom-color-magenta-500);
+  --accent-warning: var(--telekom-color-amber-400);
+  --accent-success: var(--telekom-color-seafoam-400);
+  --accent-info: var(--telekom-color-blue-400);
+  --accent-critical: var(--telekom-color-red-400);
+
+  --chip-bg: color-mix(in srgb, var(--telekom-color-magenta-500) 7%, transparent);
+  --chip-border: color-mix(in srgb, var(--telekom-color-magenta-500) 15%, transparent);
+  --chip-text: var(--telekom-color-magenta-600);
 }
 
-html, body {
-  margin: 0;
-  padding: 0;
-  height: 100%;
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --surface-primary: var(--telekom-color-gray-950);
+  --surface-elevated: var(--telekom-ui-color-surface-strong);
+  --surface-card: var(--telekom-ui-color-surface-stronger);
+  --surface-card-subtle: color-mix(in srgb, var(--telekom-ui-color-surface-strong) 70%, transparent);
+  --surface-toolbar: var(--telekom-ui-color-surface);
+  --border-strong: color-mix(in srgb, var(--telekom-color-gray-100) 35%, transparent);
+  --shadow-card: 0 12px 40px color-mix(in srgb, var(--telekom-color-black) 45%, transparent);
+  --chip-bg: color-mix(in srgb, var(--telekom-color-magenta-500) 15%, transparent);
+  --chip-border: color-mix(in srgb, var(--telekom-color-magenta-500) 35%, transparent);
+  --chip-text: var(--telekom-color-magenta-200);
+}
+
+* {
+  box-sizing: border-box;
 }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", "Liberation Sans", sans-serif;
-  line-height: 1.4;
-  background-color: var(--telekom-color-background-canvas);
-  color: var(--telekom-color-text-and-icon-standard);
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+  margin: 0;
+  min-height: 100vh;
+  background-color: var(--surface-primary);
+  color: inherit;
 }
 
-/* App container used to constrain content and provide consistent padding */
+#app {
+  min-height: 100vh;
+  background: radial-gradient(circle at top right, color-mix(in srgb, var(--accent-info) 25%, transparent) 0%, transparent 55%),
+    radial-gradient(circle at 15% 15%, color-mix(in srgb, var(--accent-telekom) 20%, transparent) 0%, transparent 45%),
+    var(--surface-primary);
+}
+
 .app-container {
-  max-width: var(--app-max-width);
+  width: min(1240px, 100%);
   margin: 0 auto;
-  padding: 0 1rem 2rem;
-}
-
-/* Navigation improvements */
-.main-nav {
+  padding: 2.5rem clamp(1rem, 5vw, 3rem) 3.5rem;
   display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 1rem 1.5rem;
-  margin: 1.5rem 0 2.5rem 0;
-}
-.main-nav a {
-  color: #0070b8;
-  text-decoration: none;
-  font-weight: 500;
-  font-size: 1.05rem;
-  transition: color 0.15s ease-in-out;
-}
-.main-nav a.router-link-exact-active {
-  color: #d9006c;
-  text-decoration: underline;
+  flex-direction: column;
+  gap: 2rem;
 }
 
-/* Visible focus ring for keyboard users */
-a:focus, button:focus, .main-nav a:focus {
-  outline: 3px solid #ffd54f;
+a {
+  color: var(--accent-info);
+}
+
+a:focus-visible,
+button:focus-visible,
+[tabindex]:focus-visible,
+scale-button:focus-visible {
+  outline: 2px solid var(--focus-outline);
   outline-offset: 3px;
 }
 
-/* Skip link for accessibility - hidden until focused */
+img {
+  display: block;
+  max-width: 100%;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-weight: 500;
+  line-height: 1.3;
+  margin: 0;
+}
+
+p {
+  margin: 0;
+}
+
+button {
+  font: inherit;
+}
+
+textarea:focus,
+input:focus,
+select:focus,
+scale-field-text:focus,
+scale-dropdown-select:focus,
+scale-text-area:focus {
+  outline: 2px solid var(--focus-outline);
+  outline-offset: 3px;
+}
+
 .skip-link {
   position: absolute;
-  left: -999px;
-  top: auto;
+  left: 50%;
+  transform: translateX(-50%);
+  top: 0.75rem;
+  background-color: var(--surface-card);
+  color: var(--telekom-color-text-and-icon-standard);
+  padding: 0.5rem 1rem;
+  border-radius: 999px;
+  border: 1px solid var(--telekom-color-ui-border-standard);
+  box-shadow: var(--shadow-card);
+  text-decoration: none;
+  z-index: 99;
+  translate: 0 -150%;
+  transition: translate 120ms ease;
+}
+
+.skip-link:focus {
+  translate: 0;
+}
+
+.sr-only {
+  position: absolute;
   width: 1px;
   height: 1px;
+  padding: 0;
+  margin: -1px;
   overflow: hidden;
-}
-.skip-link:focus {
-  left: 1rem;
-  top: 1rem;
-  width: auto;
-  height: auto;
-  padding: 0.5rem 0.75rem;
-  background: white;
-  color: black;
-  z-index: 1000;
-  border-radius: 4px;
-  box-shadow: 0 2px 6px rgba(0,0,0,0.12);
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
-/* Small utility */
-.center { text-align: center; }
-
-/* Ensure secondary variant buttons are high-contrast across the app */
-scale-button[variant="secondary"], .scale-button[variant="secondary"] {
-  background: #374151 !important; /* dark gray */
-  color: #ffffff !important;
-  border: 1px solid #374151 !important;
-  box-shadow: none !important;
+a.scale-button-link::part(button) {
+  padding: 0;
 }
-scale-button[variant="secondary"]:hover, .scale-button[variant="secondary"]:hover {
-  background: #2d3748 !important;
+
+
+scale-tag[data-intent] {
+  --icon-color: var(--color);
+  --icon-color-hover: var(--color);
+}
+
+scale-tag[data-intent="status-active"],
+scale-tag[data-intent="group"],
+scale-tag[data-intent="self-approval"] {
+  --background: var(--telekom-color-functional-success-subtle);
+  --color: var(--telekom-color-text-and-icon-on-subtle-success);
+}
+
+scale-tag[data-intent="status-pending"],
+scale-tag[data-intent="needs-approval"] {
+  --background: var(--telekom-color-functional-warning-subtle);
+  --color: var(--telekom-color-text-and-icon-on-subtle-warning);
+}
+
+scale-tag[data-intent="tip"] {
+  --background: var(--telekom-color-ui-regular);
+  --color: var(--telekom-color-text-and-icon-on-ui-regular, var(--telekom-color-text-and-icon-standard));
+}
+
+scale-tag[data-intent="status-available"],
+scale-tag[data-intent="cluster"],
+scale-tag[data-intent="group-count"],
+scale-tag[data-intent="info"] {
+  --background: var(--telekom-color-functional-informational-subtle);
+  --color: var(--telekom-color-text-and-icon-on-subtle-informational);
+}
+
+scale-tag[data-intent="status-critical"],
+scale-tag[data-intent="approval-timeout"],
+scale-tag[data-intent="reason-required"] {
+  --background: var(--telekom-color-functional-danger-subtle);
+  --color: var(--telekom-color-text-and-icon-on-subtle-danger);
+}
+
+scale-tag[data-intent="status-neutral"] {
+  --background: var(--telekom-color-background-surface-subtle);
+  --color: var(--telekom-color-text-and-icon-standard);
+}
+
+/* Shared page chrome */
+.ui-page {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.ui-page-title {
+  font-size: clamp(2rem, 4vw, 2.75rem);
+  color: var(--telekom-color-text-and-icon-standard);
+}
+
+.ui-page-subtitle {
+  color: var(--telekom-color-text-and-icon-additional);
+  font-size: 1rem;
+}
+
+/* Toolbar (filters/search) */
+.ui-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  padding: 1.25rem;
+  background-color: var(--surface-toolbar);
+  border-radius: 20px;
+  border: 1px solid var(--telekom-color-ui-border-standard);
+  box-shadow: var(--shadow-card);
+  align-items: center;
+}
+
+.ui-toolbar scale-text-field,
+.ui-toolbar scale-select,
+.ui-toolbar scale-text-area {
+  width: 100%;
+  max-width: 280px;
+}
+
+.ui-toolbar input,
+.ui-toolbar select {
+  width: 100%;
+  max-width: 280px;
+  background-color: var(--surface-card);
+  border: 1px solid var(--telekom-color-ui-border-standard);
+  border-radius: 12px;
+  color: var(--telekom-color-text-and-icon-standard);
+  padding: 0.6rem 0.85rem;
+}
+
+.ui-toolbar scale-button::part(button) {
+  min-width: 140px;
+}
+
+.ui-toolbar-info {
+  display: flex;
+  gap: 0.5rem;
+  font-size: 0.95rem;
+  color: var(--telekom-color-text-and-icon-additional);
+}
+
+/* Card primitives */
+/* .ui-card-grid, .ui-card, .ui-chip, .ui-status-badge removed in favor of Scale components */
+
+/* Info grid */
+.ui-info-grid {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+}
+
+.ui-info-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.75rem;
+  background-color: color-mix(in srgb, var(--surface-card) 80%, transparent);
+  border: 1px solid var(--telekom-color-ui-border-standard);
+  border-radius: 12px;
+}
+
+.ui-info-item label {
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--telekom-color-text-and-icon-additional);
+}
+
+.ui-info-item span {
+  color: var(--telekom-color-text-and-icon-standard);
+  font-weight: 500;
+}
+
+.ui-info-item .label {
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--telekom-color-text-and-icon-additional);
+}
+
+.ui-info-item .value {
+  color: var(--telekom-color-text-and-icon-standard);
+  font-weight: 500;
+}
+
+.ui-pill-stack {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.ui-pill-stack span {
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+  border: 1px solid var(--telekom-color-ui-border-standard);
+  background-color: var(--surface-card-subtle);
+  color: var(--telekom-color-text-and-icon-additional);
+  font-size: 0.8rem;
+}
+
+.ui-matching-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.85rem;
+  border-radius: 14px;
+  border: 1px dashed var(--telekom-color-ui-border-standard);
+  background-color: var(--surface-card-subtle);
+  color: var(--telekom-color-text-and-icon-additional);
+}
+
+.ui-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.ui-section h4 {
+  font-size: 1.05rem;
+  color: var(--telekom-color-text-and-icon-standard);
+}
+
+.ui-section p {
+  color: var(--telekom-color-text-and-icon-additional);
+}
+
+.ui-link-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--accent-info);
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.ui-link-button:hover {
+  text-decoration: underline;
+}
+
+.ui-link-button.small {
+  font-size: 0.85rem;
+}
+
+.ui-muted {
+  color: var(--telekom-color-text-and-icon-additional);
+}
+
+.center {
+  text-align: center;
+  width: 100%;
+}
+
+.loading-state,
+.empty-state {
+  padding: 2.5rem;
+  border-radius: 18px;
+  border: 1px dashed var(--telekom-color-ui-border-standard);
+  background-color: var(--surface-elevated);
+  color: var(--telekom-color-text-and-icon-additional);
+  text-align: center;
+}
+
+@media (max-width: 768px) {
+  main {
+    padding: 1.5rem 1rem 2.5rem;
+  }
+
+  .ui-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .ui-toolbar scale-text-field,
+  .ui-toolbar scale-select,
+  .ui-toolbar scale-button::part(button) {
+    width: 100%;
+  }
+}
+
+@media (forced-colors: active) {
+  :root {
+    --surface-primary: Canvas;
+    --surface-card: Canvas;
+    --surface-card-subtle: Canvas;
+    --chip-bg: Canvas;
+    --chip-border: GrayText;
+    --chip-text: ButtonText;
+  }
 }
