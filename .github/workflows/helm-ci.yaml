@@ -30,7 +30,7 @@ jobs:
 
       - name: Install kustomize
         run: |
-          curl -sSL https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh | bash
+          curl -sSL https://raw.githubusercontent.com/kubernetes-sigs/kustomize/311dbbf975369a5e871d6a1a2e3d6ce4b83d5972/hack/install_kustomize.sh | bash
           sudo mv kustomize /usr/local/bin/kustomize
 
       - name: Determine chart VERSION for this run
