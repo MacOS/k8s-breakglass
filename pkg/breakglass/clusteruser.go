@@ -70,20 +70,57 @@ func (r *BreakglassSessionRequest) SanitizeReason() error {
 	}
 
 	// Check each pattern in a case-insensitive manner
-	lowerReason := strings.ToLower(r.Reason)
-	for _, pattern := range dangerousPatterns {
-		lowerPattern := strings.ToLower(pattern)
-		idx := strings.Index(lowerReason, lowerPattern)
-		if idx >= 0 {
-			// Strip out the dangerous pattern and everything after it
-			r.Reason = r.Reason[:idx]
-			// Trim again and update lowercase version for next iteration
-			r.Reason = strings.TrimSpace(r.Reason)
-			lowerReason = strings.ToLower(r.Reason)
+	// We iterate multiple times until no more patterns are found to handle nested cases
+	for {
+		foundPattern := false
+		for _, pattern := range dangerousPatterns {
+			// Find pattern case-insensitively by searching in the original string
+			// We need to find the byte position in the original string, not the lowercased one
+			idx := indexCaseInsensitive(r.Reason, pattern)
+			if idx >= 0 {
+				// Strip out the dangerous pattern and everything after it
+				r.Reason = r.Reason[:idx]
+				r.Reason = strings.TrimSpace(r.Reason)
+				foundPattern = true
+				break // Restart the loop with the modified string
+			}
+		}
+		if !foundPattern {
+			break
 		}
 	}
 
 	return nil
+}
+
+// indexCaseInsensitive finds the byte index of pattern in s using case-insensitive matching.
+// Returns -1 if not found. This returns the index in the ORIGINAL string s, which is required
+// for safe slicing.
+//
+// IMPORTANT: We cannot use strings.Index(strings.ToLower(s), strings.ToLower(pattern)) because
+// ToLower can change byte lengths for certain Unicode characters (e.g., some multi-byte chars).
+// Using an index from the lowercased string to slice the original would cause panics or
+// incorrect results. This was discovered via fuzz testing.
+func indexCaseInsensitive(s, pattern string) int {
+	if len(pattern) == 0 {
+		return 0
+	}
+	if len(s) < len(pattern) {
+		return -1
+	}
+
+	// Iterate through each possible starting position using range to ensure
+	// we start at valid UTF-8 character boundaries.
+	// strings.EqualFold handles Unicode case folding correctly.
+	for i := range s {
+		if i+len(pattern) > len(s) {
+			break // No room for pattern to fit, exit early
+		}
+		if strings.EqualFold(s[i:i+len(pattern)], pattern) {
+			return i
+		}
+	}
+	return -1
 }
 
 // ValidateDuration validates that the requested duration is within acceptable bounds.
